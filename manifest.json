@@ -1,0 +1,31 @@
+{
+  "name": "Tsunami Defense - Wave Survival Game",
+  "short_name": "Tsunami Defense",
+  "description": "Build defenses and survive the tsunami waves in this exciting strategy game!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a4d6d",
+  "theme_color": "#1a4d6d",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAAA0klEQVRYhe2WQQqDMBBFn8VLuPIGHsOjuBEvYL2Bx3DlJdx0UQgUJBqTmUkXhf5VyJ/3STIRERERERERERERP4EBV+AJzMADWIA7cAJagF9tAhpgA06q7cAA+MCGGnCtjdcAJ+DZ2ngNcALuqu3AAPjAhhpwrY3XACfg2dp4DXACHqrtwAD4wIYacK2N1wAn4NnaeA1wAu6q7cAA+MCGGnCtjdcAJ+DZ2ngNcAIequ3AAPjAhhpwrY3XACfg2dp4DXAC7qrtwAD4wIYacK2N1wDnr4gIIiK+yhtSVyUsZ0HqswAAAABJRU5ErkJggg==",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAAA0klEQVRYhe2WQQqDMBBFn8VLuPIGHsOjuBEvYL2Bx3DlJdx0UQgUJBqTmUkXhf5VyJ/3STIRERERERERERERP4EBV+AJzMADWIA7cAJagF9tAhpgA06q7cAA+MCGGnCtjdcAJ+DZ2ngNcALuqu3AAPjAhhpwrY3XACfg2dp4DXACHqrtwAD4wIYacK2N1wAn4NnaeA1wAu6q7cAA+MCGGnCtjdcAJ+DZ2ngNcAIequ3AAPjAhhpwrY3XACfg2dp4DXAC7qrtwAD4wIYacK2N1wDnr4gIIiK+yhtSVyUsZ0HqswAAAABJRU5ErkJggg==",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAA7EAAAOxAGVKw4bAAAA0klEQVRYhe2WQQqDMBBFn8VLuPIGHsOjuBEvYL2Bx3DlJdx0UQgUJBqTmUkXhf5VyJ/3STIRERERERERERERP4EBV+AJzMADWIA7cAJagF9tAhpgA06q7cAA+MCGGnCtjdcAJ+DZ2ngNcALuqu3AAPjAhhpwrY3XACfg2dp4DXACHqrtwAD4wIYacK2N1wAn4NnaeA1wAu6q7cAA+MCGGnCtjdcAJ+DZ2ngNcAIequ3AAPjAhhpwrY3XACfg2dp4DXAC7qrtwAD4wIYacK2N1wDnr4gIIiK+yhtSVyUsZ0HqswAAAABJRU5ErkJggg==",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "entertainment"],
+  "screenshots": []
+}

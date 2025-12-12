@@ -1,307 +1,199 @@
 import { create } from 'zustand';
 
-const INITIAL_STATE = {
-  // Game state
-  gameState: 'menu', // 'menu', 'playing', 'paused', 'victory', 'defeat'
-  level: 1,
-  wave: 1,
-  score: 0,
-  credits: 1000,
+const GRAVITY = 1500; // pixels per second squared
+const JUMP_FORCE = -600; // pixels per second
+const PLAYER_SPEED = 300; // pixels per second
+const GROUND_Y = 550; // ground level
 
-  // Player state
+const INITIAL_STATE = {
+  gameState: 'menu',
+  level: 1,
+  score: 0,
+  lives: 3,
+
   player: {
-    id: 'player',
-    name: 'Rebel Commander',
-    type: 'hero',
-    faction: 'rebel',
-    level: 1,
-    xp: 0,
-    xpToNext: 100,
+    position: { x: 100, y: GROUND_Y - 80 },
+    velocity: { x: 0, y: 0 },
+    width: 40,
+    height: 80,
+    direction: 'right',
+    isGrounded: false,
+    isJumping: false,
+    isAttacking: false,
+    attackCooldown: 0,
     hp: 100,
     maxHp: 100,
-    shield: 50,
-    maxShield: 50,
-    energy: 100,
-    maxEnergy: 100,
-    damage: 20,
-    attackSpeed: 1.0,
-    critChance: 0.1,
-    critDamage: 2.0,
-    position: { x: 100, y: 300 },
-    velocity: { x: 0, y: 0 },
-    isMoving: false,
-    direction: 'right',
-    currentAnimation: 'idle',
-    skills: [
-      { id: 'blaster', name: 'Blaster', damage: 25, cooldown: 0, maxCooldown: 1, energy: 10, type: 'projectile' },
-      { id: 'grenade', name: 'Thermal Detonator', damage: 80, cooldown: 0, maxCooldown: 5, energy: 30, type: 'aoe', radius: 100 },
-      { id: 'shield', name: 'Energy Shield', cooldown: 0, maxCooldown: 10, energy: 50, type: 'buff', duration: 5 },
-      { id: 'dash', name: 'Combat Roll', cooldown: 0, maxCooldown: 3, energy: 20, type: 'mobility' },
-    ],
-    inventory: [],
-    equipment: {
-      weapon: null,
-      armor: null,
-      accessory: null
-    },
-    stats: {
-      enemiesKilled: 0,
-      damageDealt: 0,
-      damageTaken: 0,
-      wavesCompleted: 0,
-      skillsUsed: 0
-    }
+    invulnerable: false,
+    invulnerableTimer: 0,
   },
 
-  // Enemies
+  platforms: [
+    { x: 0, y: GROUND_Y, width: 2000, height: 50, type: 'ground' },
+    { x: 300, y: 450, width: 150, height: 20, type: 'platform' },
+    { x: 500, y: 350, width: 150, height: 20, type: 'platform' },
+    { x: 700, y: 250, width: 200, height: 20, type: 'platform' },
+    { x: 1000, y: 350, width: 150, height: 20, type: 'platform' },
+    { x: 1200, y: 450, width: 150, height: 20, type: 'platform' },
+  ],
+
   enemies: [],
   enemySpawnTimer: 0,
-  enemySpawnRate: 2.0,
 
-  // Projectiles
   projectiles: [],
-
-  // Effects
   particles: [],
-  explosions: [],
 
-  // Powerups
   powerups: [],
 
-  // UI state
-  selectedSkill: null,
-  hoveredEnemy: null,
-  notifications: [],
+  camera: {
+    x: 0,
+    y: 0
+  },
 
-  // Game settings
-  difficulty: 'normal', // 'easy', 'normal', 'hard', 'extreme'
-  soundEnabled: true,
-  musicEnabled: true,
+  keys: {
+    left: false,
+    right: false,
+    jump: false,
+    attack: false,
+  },
+
+  notifications: [],
 };
 
-const ENEMY_TYPES = {
+const ENEMY_TEMPLATES = {
   stormtrooper: {
-    name: 'Stormtrooper',
-    hp: 50,
-    damage: 10,
-    speed: 1.5,
-    xp: 10,
-    credits: 25,
-    size: { w: 40, h: 50 },
-    color: '#FFFFFF',
-    attackRange: 200,
-    attackCooldown: 2.0,
-  },
-  scout: {
-    name: 'Scout Trooper',
+    type: 'stormtrooper',
+    width: 40,
+    height: 70,
     hp: 30,
-    damage: 8,
-    speed: 3.0,
-    xp: 15,
-    credits: 30,
-    size: { w: 35, h: 45 },
-    color: '#8B4513',
+    damage: 10,
+    speed: 80,
+    canFly: false,
+    attackRange: 300,
+    attackCooldown: 2.0,
+    points: 100,
+  },
+  probeDroid: {
+    type: 'probeDroid',
+    width: 35,
+    height: 35,
+    hp: 20,
+    damage: 15,
+    speed: 100,
+    canFly: true,
     attackRange: 250,
     attackCooldown: 1.5,
+    points: 150,
   },
-  heavy: {
-    name: 'Heavy Trooper',
-    hp: 150,
-    damage: 25,
-    speed: 0.8,
-    xp: 30,
-    credits: 60,
-    size: { w: 60, h: 70 },
-    color: '#696969',
-    attackRange: 150,
-    attackCooldown: 3.0,
-  },
-  officer: {
-    name: 'Imperial Officer',
-    hp: 80,
-    damage: 15,
-    speed: 1.2,
-    xp: 25,
-    credits: 50,
-    size: { w: 40, h: 50 },
-    color: '#2F4F4F',
-    attackRange: 300,
-    attackCooldown: 2.5,
-  },
-  droid: {
-    name: 'Battle Droid',
-    hp: 40,
+  scoutTrooper: {
+    type: 'scoutTrooper',
+    width: 38,
+    height: 70,
+    hp: 25,
     damage: 12,
-    speed: 2.0,
-    xp: 12,
-    credits: 20,
-    size: { w: 35, h: 55 },
-    color: '#DAA520',
-    attackRange: 220,
+    speed: 120,
+    canFly: false,
+    attackRange: 350,
     attackCooldown: 1.8,
+    points: 125,
   },
-  destroyer: {
-    name: 'Destroyer Droid',
-    hp: 200,
-    damage: 35,
-    speed: 1.0,
-    xp: 50,
-    credits: 100,
-    size: { w: 70, h: 60 },
-    color: '#4169E1',
-    attackRange: 180,
-    attackCooldown: 2.2,
-    shield: 100,
-  },
-  boss: {
-    name: 'AT-ST Walker',
-    hp: 800,
-    damage: 50,
-    speed: 0.5,
-    xp: 200,
-    credits: 500,
-    size: { w: 100, h: 120 },
-    color: '#2F2F2F',
-    attackRange: 300,
-    attackCooldown: 4.0,
-    isBoss: true,
-  }
-};
-
-const ITEM_TYPES = {
-  // Weapons
-  blasterRifle: {
-    id: 'blasterRifle',
-    name: 'E-11 Blaster Rifle',
-    type: 'weapon',
-    rarity: 'common',
-    stats: { damage: 10, attackSpeed: 0.1 },
-    price: 200
-  },
-  heavyBlaster: {
-    id: 'heavyBlaster',
-    name: 'DLT-19 Heavy Blaster',
-    type: 'weapon',
-    rarity: 'rare',
-    stats: { damage: 25, attackSpeed: -0.2 },
-    price: 500
-  },
-  sniper: {
-    id: 'sniper',
-    name: 'Sniper Rifle',
-    type: 'weapon',
-    rarity: 'epic',
-    stats: { damage: 50, critChance: 0.2 },
-    price: 800
-  },
-  // Armor
-  lightArmor: {
-    id: 'lightArmor',
-    name: 'Light Combat Armor',
-    type: 'armor',
-    rarity: 'common',
-    stats: { maxHp: 20, maxShield: 10 },
-    price: 150
-  },
-  heavyArmor: {
-    id: 'heavyArmor',
-    name: 'Heavy Battle Armor',
-    type: 'armor',
-    rarity: 'rare',
-    stats: { maxHp: 50, maxShield: 30 },
-    price: 400
-  },
-  // Accessories
-  energyCell: {
-    id: 'energyCell',
-    name: 'Enhanced Energy Cell',
-    type: 'accessory',
-    rarity: 'rare',
-    stats: { maxEnergy: 30 },
-    price: 300
-  }
 };
 
 const useGameStore = create((set, get) => ({
   ...INITIAL_STATE,
 
-  // Game control actions
   startGame: () => set({
     ...INITIAL_STATE,
     gameState: 'playing',
   }),
 
   pauseGame: () => set({ gameState: 'paused' }),
-
   resumeGame: () => set({ gameState: 'playing' }),
-
   setGameState: (state) => set({ gameState: state }),
 
+  // Input handling
+  setKey: (key, value) => set((state) => ({
+    keys: { ...state.keys, [key]: value }
+  })),
+
   // Player actions
-  movePlayer: (direction) => set((state) => ({
-    player: {
-      ...state.player,
-      isMoving: true,
-      direction,
-      currentAnimation: 'walk'
+  playerJump: () => set((state) => {
+    if (state.player.isGrounded && !state.player.isJumping) {
+      return {
+        player: {
+          ...state.player,
+          velocity: { ...state.player.velocity, y: JUMP_FORCE },
+          isJumping: true,
+          isGrounded: false,
+        }
+      };
     }
-  })),
+    return state;
+  }),
 
-  stopPlayer: () => set((state) => ({
-    player: {
-      ...state.player,
-      isMoving: false,
-      currentAnimation: 'idle'
+  playerAttack: () => set((state) => {
+    if (state.player.attackCooldown > 0 || state.player.isAttacking) {
+      return state;
     }
-  })),
 
-  updatePlayerPosition: (deltaTime) => set((state) => {
-    if (!state.player.isMoving) return state;
+    // Create lightsaber attack hitbox
+    const hitboxWidth = 60;
+    const hitboxX = state.player.direction === 'right'
+      ? state.player.position.x + state.player.width
+      : state.player.position.x - hitboxWidth;
 
-    const speed = 200; // pixels per second
-    let dx = 0;
+    // Check for enemy hits
+    state.enemies.forEach(enemy => {
+      if (enemy.isDead) return;
 
-    if (state.player.direction === 'left') dx = -speed * deltaTime;
-    if (state.player.direction === 'right') dx = speed * deltaTime;
+      const enemyHit = hitboxX < enemy.position.x + enemy.width &&
+                       hitboxX + hitboxWidth > enemy.position.x &&
+                       state.player.position.y < enemy.position.y + enemy.height &&
+                       state.player.position.y + state.player.height > enemy.position.y;
 
-    const newX = Math.max(0, Math.min(window.innerWidth - 50, state.player.position.x + dx));
+      if (enemyHit) {
+        get().damageEnemy(enemy.id, 50);
+      }
+    });
+
+    // Create attack particles
+    get().createAttackParticles(hitboxX + hitboxWidth / 2, state.player.position.y + state.player.height / 2);
 
     return {
       player: {
         ...state.player,
-        position: { ...state.player.position, x: newX }
+        isAttacking: true,
+        attackCooldown: 0.5,
       }
     };
   }),
 
   damagePlayer: (damage) => set((state) => {
-    let newHp = state.player.hp;
-    let newShield = state.player.shield;
+    if (state.player.invulnerable) return state;
 
-    if (newShield > 0) {
-      newShield = Math.max(0, newShield - damage);
-      if (newShield === 0 && damage > state.player.shield) {
-        newHp = Math.max(0, newHp - (damage - state.player.shield));
-      }
-    } else {
-      newHp = Math.max(0, newHp - damage);
-    }
+    const newHp = Math.max(0, state.player.hp - damage);
+    const newLives = newHp <= 0 ? state.lives - 1 : state.lives;
 
-    const newStats = {
-      ...state.player.stats,
-      damageTaken: state.player.stats.damageTaken + damage
-    };
-
-    if (newHp <= 0) {
+    if (newHp <= 0 && newLives <= 0) {
       setTimeout(() => set({ gameState: 'defeat' }), 100);
+    } else if (newHp <= 0) {
+      // Respawn
+      return {
+        player: {
+          ...INITIAL_STATE.player,
+          hp: 100,
+          invulnerable: true,
+          invulnerableTimer: 2.0,
+        },
+        lives: newLives,
+      };
     }
 
     return {
       player: {
         ...state.player,
         hp: newHp,
-        shield: newShield,
-        stats: newStats
+        invulnerable: true,
+        invulnerableTimer: 1.0,
       }
     };
   }),
@@ -313,167 +205,26 @@ const useGameStore = create((set, get) => ({
     }
   })),
 
-  gainXP: (amount) => set((state) => {
-    const newXP = state.player.xp + amount;
-    const xpNeeded = state.player.xpToNext;
-
-    if (newXP >= xpNeeded) {
-      // Level up!
-      const newLevel = state.player.level + 1;
-      const overflow = newXP - xpNeeded;
-
-      get().addNotification({
-        type: 'success',
-        message: `Level Up! Now level ${newLevel}`,
-        duration: 3000
-      });
-
-      return {
-        player: {
-          ...state.player,
-          level: newLevel,
-          xp: overflow,
-          xpToNext: Math.floor(xpNeeded * 1.5),
-          maxHp: state.player.maxHp + 20,
-          hp: state.player.maxHp + 20,
-          maxShield: state.player.maxShield + 10,
-          shield: state.player.maxShield + 10,
-          damage: state.player.damage + 5
-        },
-        score: state.score + 1000
-      };
-    }
-
-    return {
-      player: { ...state.player, xp: newXP }
-    };
-  }),
-
-  useSkill: (skillId) => set((state) => {
-    const skill = state.player.skills.find(s => s.id === skillId);
-    if (!skill || skill.cooldown > 0 || state.player.energy < skill.energy) {
-      return state;
-    }
-
-    // Update skill cooldown and player energy
-    const updatedSkills = state.player.skills.map(s =>
-      s.id === skillId ? { ...s, cooldown: s.maxCooldown } : s
-    );
-
-    const newEnergy = state.player.energy - skill.energy;
-    const newStats = {
-      ...state.player.stats,
-      skillsUsed: state.player.stats.skillsUsed + 1
-    };
-
-    // Execute skill effect
-    const updates = {
-      player: {
-        ...state.player,
-        skills: updatedSkills,
-        energy: newEnergy,
-        stats: newStats
-      }
-    };
-
-    if (skill.type === 'projectile') {
-      // Create projectile
-      const projectile = {
-        id: Date.now() + Math.random(),
-        type: 'blaster',
-        position: { ...state.player.position, y: state.player.position.y + 20 },
-        velocity: { x: state.player.direction === 'right' ? 500 : -500, y: 0 },
-        damage: state.player.damage + skill.damage,
-        owner: 'player',
-        size: { w: 20, h: 5 },
-        color: '#00FF00'
-      };
-      updates.projectiles = [...state.projectiles, projectile];
-    }
-
-    if (skill.type === 'aoe') {
-      // Create explosion
-      updates.explosions = [...state.explosions, {
-        id: Date.now(),
-        position: { ...state.player.position },
-        radius: skill.radius,
-        damage: skill.damage,
-        owner: 'player',
-        lifetime: 0.5
-      }];
-
-      // Create particles
-      const newParticles = [];
-      for (let i = 0; i < 30; i++) {
-        const angle = (Math.PI * 2 * i) / 30;
-        newParticles.push({
-          id: Date.now() + i,
-          position: { ...state.player.position },
-          velocity: {
-            x: Math.cos(angle) * 200,
-            y: Math.sin(angle) * 200
-          },
-          color: '#FF6600',
-          lifetime: 1,
-          size: 4
-        });
-      }
-      updates.particles = [...state.particles, ...newParticles];
-    }
-
-    if (skill.type === 'buff') {
-      // Apply shield buff
-      updates.player.shield = Math.min(state.player.maxShield * 2, state.player.shield + 50);
-    }
-
-    if (skill.type === 'mobility') {
-      // Dash
-      const dashDistance = 150;
-      const direction = state.player.direction === 'right' ? 1 : -1;
-      const newX = Math.max(0, Math.min(window.innerWidth - 50,
-        state.player.position.x + dashDistance * direction));
-      updates.player.position = { ...state.player.position, x: newX };
-    }
-
-    return updates;
-  }),
-
-  updateSkillCooldowns: (deltaTime) => set((state) => ({
-    player: {
-      ...state.player,
-      skills: state.player.skills.map(skill => ({
-        ...skill,
-        cooldown: Math.max(0, skill.cooldown - deltaTime)
-      })),
-      energy: Math.min(state.player.maxEnergy, state.player.energy + 10 * deltaTime)
-    }
-  })),
-
-  // Enemy actions
+  // Enemy management
   spawnEnemy: (type) => set((state) => {
-    const template = ENEMY_TYPES[type];
+    const template = ENEMY_TEMPLATES[type];
     if (!template) return state;
+
+    const spawnX = Math.random() > 0.5 ? window.innerWidth + 100 : -100;
+    const spawnY = template.canFly
+      ? Math.random() * 300 + 100
+      : GROUND_Y - template.height;
 
     const enemy = {
       id: Date.now() + Math.random(),
-      type,
       ...template,
-      hp: template.hp,
-      maxHp: template.hp,
-      position: {
-        x: window.innerWidth + 50,
-        y: Math.random() * (window.innerHeight - 200) + 100
-      },
-      velocity: { x: -template.speed * 50, y: 0 },
+      position: { x: spawnX, y: spawnY },
+      velocity: { x: 0, y: 0 },
       currentAttackCooldown: 0,
-      isAttacking: false,
-      isDead: false
+      patrolDirection: spawnX > window.innerWidth / 2 ? -1 : 1,
+      isDead: false,
+      deathTimer: 0,
     };
-
-    if (template.shield) {
-      enemy.shield = template.shield;
-      enemy.maxShield = template.shield;
-    }
 
     return {
       enemies: [...state.enemies, enemy]
@@ -481,109 +232,142 @@ const useGameStore = create((set, get) => ({
   }),
 
   updateEnemies: (deltaTime) => set((state) => {
+    const player = state.player;
+
     const updatedEnemies = state.enemies.map(enemy => {
-      if (enemy.isDead) return enemy;
-
-      // Move towards player
-      const dx = state.player.position.x - enemy.position.x;
-      const distance = Math.abs(dx);
-
-      let newPosition = { ...enemy.position };
-      let isAttacking = false;
-
-      if (distance > enemy.attackRange) {
-        // Move towards player
-        newPosition.x += enemy.velocity.x * deltaTime;
-      } else {
-        // In attack range
-        isAttacking = true;
+      if (enemy.isDead) {
+        const newDeathTimer = enemy.deathTimer + deltaTime;
+        return { ...enemy, deathTimer: newDeathTimer };
       }
 
-      // Update attack cooldown
-      let newCooldown = Math.max(0, enemy.currentAttackCooldown - deltaTime);
+      const dx = player.position.x - enemy.position.x;
+      const distance = Math.abs(dx);
 
-      if (isAttacking && newCooldown === 0) {
-        // Attack!
-        newCooldown = enemy.attackCooldown;
+      let velocityX = 0;
+      let velocityY = enemy.velocity.y;
 
-        // Create enemy projectile
-        setTimeout(() => {
-          const projectile = {
-            id: Date.now() + Math.random(),
-            type: 'enemyBlaster',
-            position: { ...newPosition, y: newPosition.y + enemy.size.h / 2 },
-            velocity: { x: -300, y: 0 },
-            damage: enemy.damage,
-            owner: 'enemy',
-            size: { w: 15, h: 4 },
-            color: '#FF0000'
-          };
-          set(s => ({ projectiles: [...s.projectiles, projectile] }));
-        }, 100);
+      // AI behavior
+      if (distance < enemy.attackRange) {
+        // Attack mode
+        if (distance > 50) {
+          velocityX = dx > 0 ? enemy.speed : -enemy.speed;
+        }
+
+        // Shooting logic
+        let newCooldown = Math.max(0, enemy.currentAttackCooldown - deltaTime);
+        if (newCooldown === 0) {
+          // Shoot at player
+          setTimeout(() => {
+            const projectile = {
+              id: Date.now() + Math.random(),
+              type: 'enemyBlaster',
+              position: {
+                x: enemy.position.x + enemy.width / 2,
+                y: enemy.position.y + enemy.height / 2
+              },
+              velocity: { x: dx > 0 ? 400 : -400, y: 0 },
+              damage: enemy.damage,
+              owner: 'enemy',
+              radius: 6,
+            };
+            set(s => ({ projectiles: [...s.projectiles, projectile] }));
+          }, 50);
+
+          newCooldown = enemy.attackCooldown;
+        }
+
+        enemy = { ...enemy, currentAttackCooldown: newCooldown };
+      } else {
+        // Patrol mode
+        velocityX = enemy.patrolDirection * enemy.speed;
+      }
+
+      // Apply gravity for ground enemies
+      if (!enemy.canFly) {
+        velocityY += GRAVITY * deltaTime;
+      } else {
+        // Flying enemies hover
+        const targetY = 150 + Math.sin(Date.now() / 1000 + enemy.id) * 50;
+        velocityY = (targetY - enemy.position.y) * 2;
+      }
+
+      // Update position
+      let newX = enemy.position.x + velocityX * deltaTime;
+      let newY = enemy.position.y + velocityY * deltaTime;
+
+      // Platform collision for ground enemies
+      if (!enemy.canFly) {
+        let isGrounded = false;
+        state.platforms.forEach(platform => {
+          if (newX + enemy.width > platform.x &&
+              newX < platform.x + platform.width &&
+              enemy.position.y + enemy.height <= platform.y &&
+              newY + enemy.height >= platform.y) {
+            newY = platform.y - enemy.height;
+            velocityY = 0;
+            isGrounded = true;
+          }
+        });
+
+        // Reverse direction at platform edges
+        if (isGrounded) {
+          const onPlatform = state.platforms.find(p =>
+            newX + enemy.width > p.x && newX < p.x + p.width &&
+            Math.abs(newY + enemy.height - p.y) < 5
+          );
+
+          if (onPlatform) {
+            if (newX < onPlatform.x + 10 || newX + enemy.width > onPlatform.x + onPlatform.width - 10) {
+              enemy.patrolDirection *= -1;
+            }
+          }
+        }
       }
 
       return {
         ...enemy,
-        position: newPosition,
-        currentAttackCooldown: newCooldown,
-        isAttacking
+        position: { x: newX, y: newY },
+        velocity: { x: velocityX, y: velocityY },
       };
     });
 
-    return { enemies: updatedEnemies };
+    // Remove dead enemies after animation
+    const filtered = updatedEnemies.filter(e => !e.isDead || e.deathTimer < 0.5);
+
+    return { enemies: filtered };
   }),
 
   damageEnemy: (enemyId, damage) => set((state) => {
     const enemies = state.enemies.map(enemy => {
       if (enemy.id !== enemyId || enemy.isDead) return enemy;
 
-      let newHp = enemy.hp;
-      let newShield = enemy.shield || 0;
-
-      if (newShield > 0) {
-        newShield = Math.max(0, newShield - damage);
-        if (newShield === 0 && damage > enemy.shield) {
-          newHp = Math.max(0, newHp - (damage - enemy.shield));
-        }
-      } else {
-        newHp = Math.max(0, newHp - damage);
-      }
-
+      const newHp = Math.max(0, enemy.hp - damage);
       const isDead = newHp <= 0;
 
       if (isDead) {
-        // Grant XP and credits
-        setTimeout(() => {
-          get().gainXP(enemy.xp);
-          get().addCredits(enemy.credits);
-          get().addToPlayerStats('enemiesKilled', 1);
+        get().addScore(enemy.points);
 
-          // Spawn powerup chance
-          if (Math.random() < 0.15) {
-            get().spawnPowerup(enemy.position);
-          }
-        }, 10);
+        // Spawn powerup chance
+        if (Math.random() < 0.2) {
+          get().spawnPowerup(enemy.position);
+        }
+
+        // Death particles
+        get().createDeathParticles(enemy.position.x + enemy.width / 2, enemy.position.y + enemy.height / 2);
       }
 
       return {
         ...enemy,
         hp: newHp,
-        shield: newShield,
-        isDead
+        isDead,
+        deathTimer: isDead ? 0 : enemy.deathTimer,
       };
     });
-
-    // Remove dead enemies after animation
-    setTimeout(() => {
-      set(s => ({
-        enemies: s.enemies.filter(e => !e.isDead)
-      }));
-    }, 500);
 
     return { enemies };
   }),
 
-  // Projectile actions
+  // Projectiles
   updateProjectiles: (deltaTime) => set((state) => {
     const updatedProjectiles = state.projectiles
       .map(proj => ({
@@ -594,43 +378,19 @@ const useGameStore = create((set, get) => ({
         }
       }))
       .filter(proj => {
-        // Remove off-screen projectiles
-        if (proj.position.x < -50 || proj.position.x > window.innerWidth + 50) {
+        // Remove off-screen
+        if (proj.position.x < -100 || proj.position.x > window.innerWidth + 100) {
           return false;
         }
 
-        // Check collision with enemies (player projectiles)
-        if (proj.owner === 'player') {
-          for (const enemy of state.enemies) {
-            if (enemy.isDead) continue;
-
-            const hit = proj.position.x >= enemy.position.x &&
-                       proj.position.x <= enemy.position.x + enemy.size.w &&
-                       proj.position.y >= enemy.position.y &&
-                       proj.position.y <= enemy.position.y + enemy.size.h;
-
-            if (hit) {
-              get().damageEnemy(enemy.id, proj.damage);
-              get().addToPlayerStats('damageDealt', proj.damage);
-
-              // Create hit particles
-              get().createHitParticles(proj.position);
-
-              return false; // Remove projectile
-            }
-          }
-        }
-
-        // Check collision with player (enemy projectiles)
+        // Check collision with player
         if (proj.owner === 'enemy') {
-          const hit = proj.position.x >= state.player.position.x &&
-                     proj.position.x <= state.player.position.x + 50 &&
-                     proj.position.y >= state.player.position.y &&
-                     proj.position.y <= state.player.position.y + 60;
+          const hit = Math.abs(proj.position.x - (state.player.position.x + state.player.width / 2)) < 30 &&
+                     Math.abs(proj.position.y - (state.player.position.y + state.player.height / 2)) < 40;
 
           if (hit) {
             get().damagePlayer(proj.damage);
-            get().createHitParticles(proj.position);
+            get().createHitParticles(proj.position.x, proj.position.y);
             return false;
           }
         }
@@ -641,40 +401,133 @@ const useGameStore = create((set, get) => ({
     return { projectiles: updatedProjectiles };
   }),
 
-  // Explosion updates
-  updateExplosions: (deltaTime) => set((state) => {
-    const updatedExplosions = state.explosions
-      .map(exp => ({
-        ...exp,
-        lifetime: exp.lifetime - deltaTime
-      }))
-      .filter(exp => {
-        if (exp.lifetime <= 0) return false;
+  // Powerups
+  spawnPowerup: (position) => set((state) => {
+    const types = ['health', 'life'];
+    const type = types[Math.floor(Math.random() * types.length)];
 
-        // Check if this is a new explosion (hasn't dealt damage yet)
-        if (exp.lifetime > 0.4 && exp.owner === 'player') {
-          // Damage enemies in radius
-          state.enemies.forEach(enemy => {
-            if (enemy.isDead) return;
-
-            const dx = enemy.position.x - exp.position.x;
-            const dy = enemy.position.y - exp.position.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance < exp.radius) {
-              get().damageEnemy(enemy.id, exp.damage);
-              get().addToPlayerStats('damageDealt', exp.damage);
-            }
-          });
-        }
-
-        return true;
-      });
-
-    return { explosions: updatedExplosions };
+    return {
+      powerups: [...state.powerups, {
+        id: Date.now(),
+        type,
+        position: { ...position },
+        velocity: { x: 0, y: -100 },
+      }]
+    };
   }),
 
-  // Particle effects
+  updatePowerups: (deltaTime) => set((state) => {
+    const player = state.player;
+    let collected = [];
+
+    const updatedPowerups = state.powerups.map(powerup => {
+      // Gravity
+      const newVelocityY = powerup.velocity.y + GRAVITY * deltaTime * 0.5;
+      let newY = powerup.position.y + newVelocityY * deltaTime;
+
+      // Platform collision
+      state.platforms.forEach(platform => {
+        if (powerup.position.x + 15 > platform.x &&
+            powerup.position.x < platform.x + platform.width &&
+            powerup.position.y + 15 <= platform.y &&
+            newY + 15 >= platform.y) {
+          newY = platform.y - 15;
+          powerup.velocity.y = 0;
+        }
+      });
+
+      // Collision with player
+      const dx = player.position.x + player.width / 2 - powerup.position.x;
+      const dy = player.position.y + player.height / 2 - powerup.position.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < 40) {
+        collected.push(powerup);
+        return null;
+      }
+
+      return {
+        ...powerup,
+        position: { x: powerup.position.x, y: newY },
+        velocity: { ...powerup.velocity, y: newVelocityY }
+      };
+    }).filter(Boolean);
+
+    // Apply powerup effects
+    collected.forEach(powerup => {
+      switch (powerup.type) {
+        case 'health':
+          get().healPlayer(30);
+          get().addNotification({ type: 'success', message: '+30 HP', duration: 2000 });
+          break;
+        case 'life':
+          set(s => ({ lives: s.lives + 1 }));
+          get().addNotification({ type: 'success', message: '+1 Life!', duration: 2000 });
+          break;
+      }
+    });
+
+    return { powerups: updatedPowerups };
+  }),
+
+  // Particles
+  createAttackParticles: (x, y) => set((state) => {
+    const newParticles = [];
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 * i) / 8;
+      newParticles.push({
+        id: Date.now() + i + Math.random(),
+        position: { x, y },
+        velocity: {
+          x: Math.cos(angle) * 200,
+          y: Math.sin(angle) * 200
+        },
+        color: '#00FFFF',
+        lifetime: 0.4,
+        size: 4
+      });
+    }
+    return { particles: [...state.particles, ...newParticles] };
+  }),
+
+  createHitParticles: (x, y) => set((state) => {
+    const newParticles = [];
+    for (let i = 0; i < 10; i++) {
+      const angle = (Math.PI * 2 * i) / 10;
+      newParticles.push({
+        id: Date.now() + i + Math.random(),
+        position: { x, y },
+        velocity: {
+          x: Math.cos(angle) * 150,
+          y: Math.sin(angle) * 150
+        },
+        color: '#FF6600',
+        lifetime: 0.5,
+        size: 3
+      });
+    }
+    return { particles: [...state.particles, ...newParticles] };
+  }),
+
+  createDeathParticles: (x, y) => set((state) => {
+    const newParticles = [];
+    for (let i = 0; i < 20; i++) {
+      const angle = (Math.PI * 2 * i) / 20;
+      newParticles.push({
+        id: Date.now() + i + Math.random(),
+        position: { x, y },
+        velocity: {
+          x: Math.cos(angle) * 250,
+          y: Math.sin(angle) * 250 - 100
+        },
+        color: i % 2 === 0 ? '#FFE81F' : '#FF0000',
+        lifetime: 1.0,
+        size: 5
+      });
+    }
+    return { particles: [...state.particles, ...newParticles] };
+  }),
+
   updateParticles: (deltaTime) => set((state) => ({
     particles: state.particles
       .map(p => ({
@@ -685,7 +538,7 @@ const useGameStore = create((set, get) => ({
         },
         velocity: {
           x: p.velocity.x * 0.98,
-          y: p.velocity.y + 200 * deltaTime // gravity
+          y: p.velocity.y + GRAVITY * deltaTime * 0.5
         },
         lifetime: p.lifetime - deltaTime,
         size: p.size * 0.98
@@ -693,140 +546,9 @@ const useGameStore = create((set, get) => ({
       .filter(p => p.lifetime > 0 && p.size > 0.5)
   })),
 
-  createHitParticles: (position) => set((state) => {
-    const newParticles = [];
-    for (let i = 0; i < 10; i++) {
-      const angle = (Math.PI * 2 * i) / 10;
-      newParticles.push({
-        id: Date.now() + i + Math.random(),
-        position: { ...position },
-        velocity: {
-          x: Math.cos(angle) * 100,
-          y: Math.sin(angle) * 100
-        },
-        color: '#FFFF00',
-        lifetime: 0.5,
-        size: 3
-      });
-    }
-    return { particles: [...state.particles, ...newParticles] };
-  }),
-
-  // Powerups
-  spawnPowerup: (position) => set((state) => {
-    const types = ['health', 'shield', 'energy', 'credits'];
-    const type = types[Math.floor(Math.random() * types.length)];
-
-    return {
-      powerups: [...state.powerups, {
-        id: Date.now(),
-        type,
-        position: { ...position },
-        collected: false
-      }]
-    };
-  }),
-
-  updatePowerups: () => set((state) => {
-    const player = state.player;
-
-    state.powerups.forEach(powerup => {
-      if (powerup.collected) return;
-
-      const dx = player.position.x - powerup.position.x;
-      const dy = player.position.y - powerup.position.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance < 50) {
-        powerup.collected = true;
-
-        switch (powerup.type) {
-          case 'health':
-            get().healPlayer(30);
-            get().addNotification({ type: 'success', message: '+30 HP', duration: 2000 });
-            break;
-          case 'shield':
-            set(s => ({
-              player: {
-                ...s.player,
-                shield: Math.min(s.player.maxShield, s.player.shield + 25)
-              }
-            }));
-            get().addNotification({ type: 'success', message: '+25 Shield', duration: 2000 });
-            break;
-          case 'energy':
-            set(s => ({
-              player: {
-                ...s.player,
-                energy: Math.min(s.player.maxEnergy, s.player.energy + 50)
-              }
-            }));
-            get().addNotification({ type: 'success', message: '+50 Energy', duration: 2000 });
-            break;
-          case 'credits':
-            get().addCredits(50);
-            get().addNotification({ type: 'success', message: '+50 Credits', duration: 2000 });
-            break;
-        }
-      }
-    });
-
-    return {
-      powerups: state.powerups.filter(p => !p.collected)
-    };
-  }),
-
-  // Wave management
-  nextWave: () => set((state) => ({
-    wave: state.wave + 1,
-    enemySpawnRate: Math.max(0.5, state.enemySpawnRate - 0.1),
-    player: {
-      ...state.player,
-      hp: Math.min(state.player.maxHp, state.player.hp + 20),
-      shield: state.player.maxShield,
-      energy: state.player.maxEnergy,
-      stats: {
-        ...state.player.stats,
-        wavesCompleted: state.player.stats.wavesCompleted + 1
-      }
-    },
-    score: state.score + 500 * state.wave
-  })),
-
-  checkWaveComplete: () => {
-    const state = get();
-    if (state.enemies.length === 0 && state.enemySpawnTimer > 30) {
-      get().addNotification({
-        type: 'success',
-        message: `Wave ${state.wave} Complete!`,
-        duration: 3000
-      });
-      get().nextWave();
-    }
-  },
-
-  // Economy
-  addCredits: (amount) => set((state) => ({
-    credits: state.credits + amount,
-    score: state.score + amount
-  })),
-
-  spendCredits: (amount) => set((state) => {
-    if (state.credits >= amount) {
-      return { credits: state.credits - amount };
-    }
-    return state;
-  }),
-
-  // Stats
-  addToPlayerStats: (stat, value) => set((state) => ({
-    player: {
-      ...state.player,
-      stats: {
-        ...state.player.stats,
-        [stat]: state.player.stats[stat] + value
-      }
-    }
+  // Score
+  addScore: (points) => set((state) => ({
+    score: state.score + points
   })),
 
   // Notifications
@@ -845,92 +567,113 @@ const useGameStore = create((set, get) => ({
     };
   }),
 
-  // Game loop update
+  // Physics update
+  updatePlayer: (deltaTime) => set((state) => {
+    const player = state.player;
+    let velocityX = 0;
+    let velocityY = player.velocity.y;
+
+    // Horizontal movement
+    if (state.keys.left) {
+      velocityX = -PLAYER_SPEED;
+    } else if (state.keys.right) {
+      velocityX = PLAYER_SPEED;
+    }
+
+    // Apply gravity
+    velocityY += GRAVITY * deltaTime;
+
+    // Update position
+    let newX = player.position.x + velocityX * deltaTime;
+    let newY = player.position.y + velocityY * deltaTime;
+
+    // Constrain to screen horizontally
+    newX = Math.max(0, Math.min(1900, newX));
+
+    // Platform collision
+    let isGrounded = false;
+    state.platforms.forEach(platform => {
+      // Vertical collision (landing on platform)
+      if (newX + player.width > platform.x &&
+          newX < platform.x + platform.width &&
+          player.position.y + player.height <= platform.y &&
+          newY + player.height >= platform.y &&
+          velocityY >= 0) {
+        newY = platform.y - player.height;
+        velocityY = 0;
+        isGrounded = true;
+      }
+    });
+
+    // Update direction based on movement
+    let direction = player.direction;
+    if (velocityX < 0) direction = 'left';
+    if (velocityX > 0) direction = 'right';
+
+    // Update attack cooldown
+    const newAttackCooldown = Math.max(0, player.attackCooldown - deltaTime);
+    const newIsAttacking = newAttackCooldown > 0.3 ? player.isAttacking : false;
+
+    // Update invulnerability
+    const newInvulnerableTimer = Math.max(0, player.invulnerableTimer - deltaTime);
+    const newInvulnerable = newInvulnerableTimer > 0;
+
+    return {
+      player: {
+        ...player,
+        position: { x: newX, y: newY },
+        velocity: { x: velocityX, y: velocityY },
+        direction,
+        isGrounded,
+        isJumping: !isGrounded,
+        attackCooldown: newAttackCooldown,
+        isAttacking: newIsAttacking,
+        invulnerableTimer: newInvulnerableTimer,
+        invulnerable: newInvulnerable,
+      }
+    };
+  }),
+
+  // Camera update
+  updateCamera: () => set((state) => {
+    const player = state.player;
+    const screenWidth = window.innerWidth;
+
+    let targetCameraX = player.position.x - screenWidth / 2 + player.width / 2;
+    targetCameraX = Math.max(0, Math.min(2000 - screenWidth, targetCameraX));
+
+    return {
+      camera: {
+        x: targetCameraX,
+        y: 0
+      }
+    };
+  }),
+
+  // Main game loop
   gameUpdate: (deltaTime) => {
     const state = get();
     if (state.gameState !== 'playing') return;
 
-    get().updatePlayerPosition(deltaTime);
-    get().updateSkillCooldowns(deltaTime);
+    get().updatePlayer(deltaTime);
     get().updateEnemies(deltaTime);
     get().updateProjectiles(deltaTime);
-    get().updateExplosions(deltaTime);
     get().updateParticles(deltaTime);
-    get().updatePowerups();
+    get().updatePowerups(deltaTime);
+    get().updateCamera();
 
     // Enemy spawning
     const newSpawnTimer = state.enemySpawnTimer + deltaTime;
     set({ enemySpawnTimer: newSpawnTimer });
 
-    if (newSpawnTimer >= state.enemySpawnRate) {
-      const enemyTypes = Object.keys(ENEMY_TYPES);
-      let type;
-
-      // Boss every 10 waves
-      if (state.wave % 10 === 0 && state.enemies.length === 0 && newSpawnTimer < state.enemySpawnRate + 1) {
-        type = 'boss';
-      } else {
-        // Increase variety with wave progression
-        const availableTypes = enemyTypes.filter(t => {
-          if (t === 'boss') return false;
-          if (t === 'destroyer' && state.wave < 5) return false;
-          if (t === 'heavy' && state.wave < 3) return false;
-          return true;
-        });
-        type = availableTypes[Math.floor(Math.random() * availableTypes.length)];
-      }
-
+    if (newSpawnTimer >= 3.0 && state.enemies.length < 5) {
+      const types = Object.keys(ENEMY_TEMPLATES);
+      const type = types[Math.floor(Math.random() * types.length)];
       get().spawnEnemy(type);
       set({ enemySpawnTimer: 0 });
     }
-
-    // Check wave completion
-    if (newSpawnTimer > 30) {
-      get().checkWaveComplete();
-    }
   },
-
-  // Save/Load
-  saveGame: () => {
-    const state = get();
-    const saveData = {
-      level: state.level,
-      wave: state.wave,
-      score: state.score,
-      credits: state.credits,
-      player: state.player,
-      difficulty: state.difficulty
-    };
-    localStorage.setItem('starwars_save', JSON.stringify(saveData));
-  },
-
-  loadGame: () => {
-    const saved = localStorage.getItem('starwars_save');
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        set({
-          level: data.level,
-          wave: data.wave,
-          score: data.score,
-          credits: data.credits,
-          player: data.player,
-          difficulty: data.difficulty || 'normal',
-          gameState: 'playing'
-        });
-        return true;
-      } catch (e) {
-        console.error('Failed to load save:', e);
-        return false;
-      }
-    }
-    return false;
-  },
-
-  deleteSave: () => {
-    localStorage.removeItem('starwars_save');
-  }
 }));
 
 export default useGameStore;
-export { ENEMY_TYPES, ITEM_TYPES };
+export { GROUND_Y };

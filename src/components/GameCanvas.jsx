@@ -1,25 +1,25 @@
 import { useEffect, useRef } from 'react';
 import useGameStore from '../store/gameStore';
+import { GROUND_Y } from '../store/gameStore';
 import '../styles/GameCanvas.css';
 
 function GameCanvas() {
   const canvasRef = useRef(null);
   const {
     player,
+    platforms,
     enemies,
     projectiles,
     particles,
-    explosions,
     powerups,
-    movePlayer,
-    stopPlayer,
-    useSkill,
+    camera,
+    setKey,
+    playerJump,
+    playerAttack,
     pauseGame,
     resumeGame,
     gameState
   } = useGameStore();
-
-  const keysPressed = useRef(new Set());
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -37,6 +37,7 @@ function GameCanvas() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Input handling
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (gameState !== 'playing') {
@@ -48,28 +49,23 @@ function GameCanvas() {
         return;
       }
 
-      keysPressed.current.add(e.key.toLowerCase());
-
       // Movement
       if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
-        movePlayer('left');
+        setKey('left', true);
       }
       if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
-        movePlayer('right');
+        setKey('right', true);
       }
 
-      // Skills
-      if (e.key === '1' || e.key === 'q' || e.key === 'Q') {
-        useSkill('blaster');
+      // Jump
+      if (e.key === ' ' || e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        playerJump();
       }
-      if (e.key === '2' || e.key === 'e' || e.key === 'E') {
-        useSkill('grenade');
-      }
-      if (e.key === '3' || e.key === 'r' || e.key === 'R') {
-        useSkill('shield');
-      }
-      if (e.key === '4' || e.key === 'f' || e.key === 'F') {
-        useSkill('dash');
+
+      // Attack
+      if (e.key === 'x' || e.key === 'X' || e.key === 'Control') {
+        playerAttack();
       }
 
       // Pause
@@ -79,14 +75,11 @@ function GameCanvas() {
     };
 
     const handleKeyUp = (e) => {
-      keysPressed.current.delete(e.key.toLowerCase());
-
-      const key = e.key.toLowerCase();
-      if ((key === 'a' || key === 'arrowleft') && !keysPressed.current.has('d') && !keysPressed.current.has('arrowright')) {
-        stopPlayer();
+      if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
+        setKey('left', false);
       }
-      if ((key === 'd' || key === 'arrowright') && !keysPressed.current.has('a') && !keysPressed.current.has('arrowleft')) {
-        stopPlayer();
+      if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
+        setKey('right', false);
       }
     };
 
@@ -97,7 +90,193 @@ function GameCanvas() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [movePlayer, stopPlayer, useSkill, pauseGame, resumeGame, gameState]);
+  }, [setKey, playerJump, playerAttack, pauseGame, resumeGame, gameState]);
+
+  // Draw Jedi character
+  const drawJedi = (ctx, x, y, width, height, direction, isAttacking, invulnerable) => {
+    ctx.save();
+    ctx.translate(x + width / 2, y + height / 2);
+    if (direction === 'left') ctx.scale(-1, 1);
+
+    // Flicker if invulnerable
+    if (invulnerable && Math.floor(Date.now() / 100) % 2 === 0) {
+      ctx.globalAlpha = 0.5;
+    }
+
+    // Body (brown robes)
+    ctx.fillStyle = '#8B4513';
+    ctx.beginPath();
+    ctx.moveTo(-width / 4, -height / 3);
+    ctx.lineTo(-width / 3, height / 2);
+    ctx.lineTo(width / 3, height / 2);
+    ctx.lineTo(width / 4, -height / 3);
+    ctx.closePath();
+    ctx.fill();
+
+    // Belt
+    ctx.fillStyle = '#654321';
+    ctx.fillRect(-width / 3, height / 6, width * 2 / 3, height / 12);
+
+    // Head (flesh tone)
+    ctx.fillStyle = '#FFD7A3';
+    ctx.beginPath();
+    ctx.arc(0, -height / 3, width / 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hair (brown)
+    ctx.fillStyle = '#654321';
+    ctx.beginPath();
+    ctx.arc(0, -height / 3 - width / 6, width / 3, 0, Math.PI);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(-width / 8, -height / 3, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(width / 8, -height / 3, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Lightsaber handle
+    ctx.fillStyle = '#C0C0C0';
+    ctx.fillRect(width / 4, -height / 8, width / 6, height / 3);
+
+    // Lightsaber blade (when attacking)
+    if (isAttacking) {
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#00FFFF';
+      ctx.fillStyle = '#00FFFF';
+      ctx.fillRect(width / 4 + width / 12 - 2, -height / 8 - height / 2, 4, height / 1.5);
+
+      // Bright core
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(width / 4 + width / 12 - 1, -height / 8 - height / 2, 2, height / 1.5);
+    }
+
+    ctx.restore();
+  };
+
+  // Draw Stormtrooper
+  const drawStormtrooper = (ctx, x, y, width, height, facingLeft) => {
+    ctx.save();
+    ctx.translate(x + width / 2, y + height / 2);
+    if (facingLeft) ctx.scale(-1, 1);
+
+    // Body (white armor)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+
+    // Torso
+    ctx.fillRect(-width / 3, -height / 4, width * 2 / 3, height * 2 / 3);
+    ctx.strokeRect(-width / 3, -height / 4, width * 2 / 3, height * 2 / 3);
+
+    // Helmet
+    ctx.beginPath();
+    ctx.arc(0, -height / 3, width / 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Helmet details (black visor)
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(-width / 4, -height / 3 - 5, width / 2, 10);
+
+    // Eyes (T-shaped visor)
+    ctx.fillRect(-3, -height / 3, 6, 15);
+
+    // Blaster
+    ctx.fillStyle = '#404040';
+    ctx.fillRect(width / 3, -height / 8, width / 4, height / 12);
+
+    // Black details on armor
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(-width / 8, 0, width / 4, height / 16);
+
+    ctx.restore();
+  };
+
+  // Draw Probe Droid
+  const drawProbeDroid = (ctx, x, y, width, height) => {
+    ctx.save();
+
+    // Main sphere body
+    ctx.fillStyle = '#404040';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.arc(x + width / 2, y + height / 2, width / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Eye/sensor (red)
+    ctx.fillStyle = '#FF0000';
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#FF0000';
+    ctx.beginPath();
+    ctx.arc(x + width / 2, y + height / 2, width / 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Antennas
+    ctx.strokeStyle = '#606060';
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 2;
+
+    for (let i = 0; i < 4; i++) {
+      const angle = (Math.PI * 2 * i) / 4;
+      const startX = x + width / 2 + Math.cos(angle) * width / 2;
+      const startY = y + height / 2 + Math.sin(angle) * height / 2;
+      const endX = startX + Math.cos(angle) * width / 3;
+      const endY = startY + Math.sin(angle) * height / 3;
+
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      // Antenna tip
+      ctx.fillStyle = '#808080';
+      ctx.beginPath();
+      ctx.arc(endX, endY, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  };
+
+  // Draw Scout Trooper
+  const drawScoutTrooper = (ctx, x, y, width, height, facingLeft) => {
+    ctx.save();
+    ctx.translate(x + width / 2, y + height / 2);
+    if (facingLeft) ctx.scale(-1, 1);
+
+    // Body (gray/black armor)
+    ctx.fillStyle = '#505050';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+
+    // Torso (slimmer than stormtrooper)
+    ctx.fillRect(-width / 4, -height / 4, width / 2, height * 2 / 3);
+    ctx.strokeRect(-width / 4, -height / 4, width / 2, height * 2 / 3);
+
+    // Helmet (distinctive scout helmet)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.ellipse(0, -height / 3, width / 3, width / 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Black visor
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(-width / 4, -height / 3 - 8, width / 2, 16);
+
+    // Blaster rifle
+    ctx.fillStyle = '#303030';
+    ctx.fillRect(width / 3, -height / 6, width / 3, height / 10);
+
+    ctx.restore();
+  };
 
   // Render game
   useEffect(() => {
@@ -110,112 +289,142 @@ function GameCanvas() {
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw ground
-      ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+      ctx.save();
+      ctx.translate(-camera.x, -camera.y);
 
-      // Draw grid lines
-      ctx.strokeStyle = 'rgba(255, 232, 31, 0.1)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < canvas.width; i += 50) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-        ctx.stroke();
+      // Draw space background
+      ctx.fillStyle = '#0a0a1a';
+      ctx.fillRect(camera.x, camera.y, canvas.width, canvas.height);
+
+      // Draw stars
+      ctx.fillStyle = '#FFFFFF';
+      for (let i = 0; i < 100; i++) {
+        const x = (i * 131) % 2000;
+        const y = (i * 197) % 600;
+        const size = (i % 3) + 1;
+        if (x >= camera.x - 50 && x <= camera.x + canvas.width + 50) {
+          ctx.fillRect(x, y, size, size);
+        }
       }
-      for (let i = 0; i < canvas.height; i += 50) {
-        ctx.beginPath();
-        ctx.moveTo(0, i);
-        ctx.lineTo(canvas.width, i);
-        ctx.stroke();
-      }
+
+      // Draw distant planets/moons
+      ctx.fillStyle = 'rgba(100, 100, 150, 0.3)';
+      ctx.beginPath();
+      ctx.arc(1500, 150, 80, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw platforms
+      platforms.forEach(platform => {
+        if (platform.type === 'ground') {
+          // Ground platform - Death Star floor style
+          ctx.fillStyle = '#2a2a3a';
+          ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+
+          // Grid pattern
+          ctx.strokeStyle = '#404060';
+          ctx.lineWidth = 1;
+          for (let i = platform.x; i < platform.x + platform.width; i += 50) {
+            ctx.beginPath();
+            ctx.moveTo(i, platform.y);
+            ctx.lineTo(i, platform.y + platform.height);
+            ctx.stroke();
+          }
+
+          // Top edge
+          ctx.strokeStyle = '#505070';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(platform.x, platform.y);
+          ctx.lineTo(platform.x + platform.width, platform.y);
+          ctx.stroke();
+        } else {
+          // Floating platform - metal grating
+          ctx.fillStyle = '#4a4a5a';
+          ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+
+          ctx.strokeStyle = '#6a6a7a';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
+
+          // Grating lines
+          ctx.strokeStyle = '#5a5a6a';
+          ctx.lineWidth = 1;
+          for (let i = platform.x + 10; i < platform.x + platform.width; i += 20) {
+            ctx.beginPath();
+            ctx.moveTo(i, platform.y);
+            ctx.lineTo(i, platform.y + platform.height);
+            ctx.stroke();
+          }
+        }
+      });
 
       // Draw powerups
       powerups.forEach(powerup => {
-        let color = '#FFFFFF';
-        let symbol = '?';
+        const x = powerup.position.x;
+        const y = powerup.position.y;
 
-        switch (powerup.type) {
-          case 'health':
-            color = '#00FF00';
-            symbol = '❤️';
-            break;
-          case 'shield':
-            color = '#00D9FF';
-            symbol = '🛡️';
-            break;
-          case 'energy':
-            color = '#FFE81F';
-            symbol = '⚡';
-            break;
-          case 'credits':
-            color = '#FFD700';
-            symbol = '💰';
-            break;
+        if (powerup.type === 'health') {
+          // Health pack (medical cross)
+          ctx.fillStyle = '#00FF00';
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#00FF00';
+
+          ctx.beginPath();
+          ctx.arc(x, y, 12, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(x - 8, y - 2, 16, 4);
+          ctx.fillRect(x - 2, y - 8, 4, 16);
+          ctx.shadowBlur = 0;
+        } else if (powerup.type === 'life') {
+          // Extra life (Rebel symbol)
+          ctx.fillStyle = '#FFD700';
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#FFD700';
+
+          ctx.beginPath();
+          ctx.arc(x, y, 12, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#FF0000';
+          ctx.font = 'bold 16px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('1UP', x, y);
+          ctx.shadowBlur = 0;
         }
-
-        ctx.save();
-        ctx.fillStyle = color;
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = color;
-
-        // Floating animation
-        const floatOffset = Math.sin(Date.now() / 200) * 5;
-
-        ctx.beginPath();
-        ctx.arc(powerup.position.x, powerup.position.y + floatOffset, 15, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.font = '24px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(symbol, powerup.position.x, powerup.position.y + floatOffset + 8);
-        ctx.restore();
       });
 
       // Draw particles
       particles.forEach(particle => {
         ctx.fillStyle = particle.color;
         ctx.globalAlpha = particle.lifetime;
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = particle.color;
         ctx.beginPath();
         ctx.arc(particle.position.x, particle.position.y, particle.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1;
-      });
-
-      // Draw explosions
-      explosions.forEach(explosion => {
-        const progress = 1 - (explosion.lifetime / 0.5);
-        const currentRadius = explosion.radius * progress;
-
-        ctx.strokeStyle = '#FF6600';
-        ctx.lineWidth = 5;
-        ctx.globalAlpha = explosion.lifetime / 0.5;
-        ctx.beginPath();
-        ctx.arc(explosion.position.x, explosion.position.y, currentRadius, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#FFAA00';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(explosion.position.x, explosion.position.y, currentRadius * 0.7, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
       });
 
       // Draw projectiles
       projectiles.forEach(proj => {
         ctx.save();
-        ctx.fillStyle = proj.color;
+        ctx.fillStyle = '#FF0000';
         ctx.shadowBlur = 10;
-        ctx.shadowColor = proj.color;
+        ctx.shadowColor = '#FF0000';
 
-        if (proj.type === 'blaster') {
-          ctx.fillRect(proj.position.x, proj.position.y, proj.size.w, proj.size.h);
-        } else {
-          ctx.beginPath();
-          ctx.arc(proj.position.x, proj.position.y, proj.size.w / 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
+        ctx.beginPath();
+        ctx.arc(proj.position.x, proj.position.y, proj.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Bright core
+        ctx.fillStyle = '#FFFF00';
+        ctx.beginPath();
+        ctx.arc(proj.position.x, proj.position.y, proj.radius / 2, 0, Math.PI * 2);
+        ctx.fill();
 
         ctx.restore();
       });
@@ -223,118 +432,47 @@ function GameCanvas() {
       // Draw enemies
       enemies.forEach(enemy => {
         if (enemy.isDead) {
-          // Death animation
-          ctx.globalAlpha = 0.3;
+          ctx.globalAlpha = Math.max(0, 1 - enemy.deathTimer * 2);
         }
 
-        ctx.save();
+        const facingLeft = enemy.velocity?.x < 0;
 
-        // Enemy body
-        ctx.fillStyle = enemy.color;
-        ctx.fillRect(
-          enemy.position.x,
-          enemy.position.y,
-          enemy.size.w,
-          enemy.size.h
-        );
-
-        // Border
-        ctx.strokeStyle = enemy.isBoss ? '#FFE81F' : '#FFFFFF';
-        ctx.lineWidth = enemy.isBoss ? 3 : 1;
-        ctx.strokeRect(
-          enemy.position.x,
-          enemy.position.y,
-          enemy.size.w,
-          enemy.size.h
-        );
-
-        // Boss glow
-        if (enemy.isBoss) {
-          ctx.shadowBlur = 20;
-          ctx.shadowColor = '#FFE81F';
-          ctx.strokeRect(
-            enemy.position.x,
-            enemy.position.y,
-            enemy.size.w,
-            enemy.size.h
-          );
+        if (enemy.type === 'stormtrooper') {
+          drawStormtrooper(ctx, enemy.position.x, enemy.position.y, enemy.width, enemy.height, facingLeft);
+        } else if (enemy.type === 'probeDroid') {
+          drawProbeDroid(ctx, enemy.position.x, enemy.position.y, enemy.width, enemy.height);
+        } else if (enemy.type === 'scoutTrooper') {
+          drawScoutTrooper(ctx, enemy.position.x, enemy.position.y, enemy.width, enemy.height, facingLeft);
         }
-
-        // Eyes
-        ctx.fillStyle = enemy.isAttacking ? '#FF0000' : '#FFE81F';
-        const eyeY = enemy.position.y + enemy.size.h * 0.3;
-        ctx.beginPath();
-        ctx.arc(enemy.position.x + enemy.size.w * 0.3, eyeY, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(enemy.position.x + enemy.size.w * 0.7, eyeY, 3, 0, Math.PI * 2);
-        ctx.fill();
 
         // HP bar
-        const hpPercent = enemy.hp / enemy.maxHp;
-        const barWidth = enemy.size.w;
-        const barHeight = 4;
-        const barY = enemy.position.y - 10;
-
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(enemy.position.x, barY, barWidth, barHeight);
-
-        ctx.fillStyle = hpPercent > 0.5 ? '#00FF00' : hpPercent > 0.25 ? '#FFAA00' : '#FF0000';
-        ctx.fillRect(enemy.position.x, barY, barWidth * hpPercent, barHeight);
-
-        // Shield bar
-        if (enemy.shield > 0) {
-          const shieldPercent = enemy.shield / enemy.maxShield;
-          const shieldBarY = barY - 6;
+        if (!enemy.isDead) {
+          const hpPercent = enemy.hp / (enemy.hp + 30); // Approximate max HP
+          const barWidth = enemy.width;
+          const barHeight = 4;
+          const barY = enemy.position.y - 10;
 
           ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-          ctx.fillRect(enemy.position.x, shieldBarY, barWidth, 3);
+          ctx.fillRect(enemy.position.x, barY, barWidth, barHeight);
 
-          ctx.fillStyle = '#00D9FF';
-          ctx.fillRect(enemy.position.x, shieldBarY, barWidth * shieldPercent, 3);
+          ctx.fillStyle = hpPercent > 0.5 ? '#00FF00' : hpPercent > 0.25 ? '#FFAA00' : '#FF0000';
+          ctx.fillRect(enemy.position.x, barY, barWidth * hpPercent, barHeight);
         }
 
-        ctx.restore();
         ctx.globalAlpha = 1;
       });
 
-      // Draw player
-      ctx.save();
-
-      // Player body
-      const pColor = player.shield > 0 ? '#00D9FF' : '#FFE81F';
-      ctx.fillStyle = pColor;
-      ctx.fillRect(player.position.x, player.position.y, 50, 60);
-
-      // Player border
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(player.position.x, player.position.y, 50, 60);
-
-      // Shield effect
-      if (player.shield > 0) {
-        ctx.strokeStyle = '#00D9FF';
-        ctx.lineWidth = 3;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = '#00D9FF';
-        ctx.strokeRect(player.position.x - 5, player.position.y - 5, 60, 70);
-      }
-
-      // Face
-      ctx.fillStyle = '#000000';
-      ctx.beginPath();
-      ctx.arc(player.position.x + 15, player.position.y + 25, 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(player.position.x + 35, player.position.y + 25, 3, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Direction indicator
-      const direction = player.direction === 'right' ? '→' : '←';
-      ctx.fillStyle = '#FFE81F';
-      ctx.font = 'bold 24px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(direction, player.position.x + 25, player.position.y + 50);
+      // Draw player (Jedi)
+      drawJedi(
+        ctx,
+        player.position.x,
+        player.position.y,
+        player.width,
+        player.height,
+        player.direction,
+        player.isAttacking,
+        player.invulnerable
+      );
 
       ctx.restore();
     };
@@ -352,7 +490,7 @@ function GameCanvas() {
         cancelAnimationFrame(animationFrame);
       }
     };
-  }, [player, enemies, projectiles, particles, explosions, powerups]);
+  }, [player, platforms, enemies, projectiles, particles, powerups, camera]);
 
   return <canvas ref={canvasRef} className="game-canvas" />;
 }

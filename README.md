@@ -1,129 +1,192 @@
-# 🌊 Tsunami Defense - Wave Survival Game
+# ⚔️ Star Wars: Galaxy Defense ⚔️
 
-A thrilling 2.5D side-scrolling tower defense game where you build defenses to protect your coastal city from devastating tsunami waves!
+An epic, detailed Star Wars-themed defense game built with **React + Vite**. Defend the galaxy against endless waves of Imperial forces!
 
 ## 🎮 Game Features
 
-### Core Gameplay
-- **Progressive Difficulty**: Multiple levels with increasingly powerful tsunami waves
-- **Strategic Defense Building**: Place walls, barriers, and trees to protect your city
-- **Resource Management**: Earn coins by surviving waves and spend them wisely
-- **Real-time Physics**: Watch tsunami waves interact with your defenses
-- **Save System**: Your progress is automatically saved using localStorage
+### 🌟 Core Gameplay
+- **Endless Wave System**: Face increasingly challenging waves of Imperial enemies
+- **Dynamic Combat**: Real-time action with responsive controls
+- **Progression System**: Level up, gain XP, and become stronger
+- **Multiple Enemy Types**: 7+ unique enemy types including bosses
+- **Boss Battles**: Epic AT-ST Walker boss fights every 10 waves
 
-### Defense Types
-- 🌳 **Tree** (50 coins) - Slows water flow, basic protection
-- 🧱 **Basic Wall** (100 coins) - Small barrier with moderate HP
-- 🏰 **Strong Wall** (250 coins) - Tall and durable defense structure
-- 🗿 **Mega Barrier** (500 coins) - Maximum protection against waves
+### ⚔️ Combat System
+- **4 Unique Skills**:
+  - **Blaster (1/Q)**: Rapid-fire projectile weapon
+  - **Thermal Detonator (2/E)**: Area-of-effect explosion
+  - **Energy Shield (3/R)**: Temporary shield boost
+  - **Combat Roll (4/F)**: Quick evasive dash
 
-### PWA Features
-- **Offline Play**: Play anywhere, even without internet connection
-- **Installable**: Add to home screen on mobile devices
-- **Responsive Design**: Works on desktop, tablet, and mobile
-- **Fast Loading**: Cached resources for instant startup
+- **Advanced Stats**:
+  - HP, Shield, and Energy systems
+  - Damage, Attack Speed, Crit Chance, Crit Damage
+  - Real-time stat tracking
 
-## 🚀 How to Play
+### 🎨 Visual Features
+- **Stunning Animations**: Powered by Framer Motion
+- **Particle Effects**: Explosions, hits, and environmental effects
+- **Dynamic Starfield Background**: Animated space environment
+- **Smooth UI**: Responsive and animated interface elements
+- **Health & Shield Bars**: Visual feedback for all units
+- **Skill Cooldown Indicators**: Clear visual feedback
 
-1. **Start the Game**: Click "Start Game" from the main menu
-2. **Build Defenses**:
-   - Open the shop (🛒 Shop button)
-   - Select a defense type
-   - Click on the terrain to place it
-3. **Start Wave**: Click "🌊 Start Wave" when ready
-4. **Survive**: Watch your defenses fight against the tsunami
-5. **Level Up**: Complete waves to earn coins and progress to harder levels
+### 💾 Progression & Persistence
+- **Save/Load System**: Continue your progress anytime
+- **Character Progression**: Level up to increase stats
+- **Statistics Tracking**: Detailed combat and performance stats
+- **Powerups**: Collect health, shield, energy, and credit drops
+- **Difficulty Modes**: Easy, Normal, Hard, Extreme
 
-## 🎯 Strategy Tips
+### 🎯 Polish & UX
+- **Detailed HUD**: All information at a glance
+- **Notification System**: Real-time feedback
+- **Multiple Menus**: Main menu, pause, victory, defeat screens
+- **Keyboard Controls**: Full keyboard support
+- **Responsive Design**: Works on different screen sizes
 
-- Build multiple layers of defense for better protection
-- Mix different defense types for optimal coverage
-- Save stronger defenses for later, more difficult levels
-- Place mega barriers closest to the city for last-line defense
-- Trees are cheap - use them to slow down waves early
+## 🚀 Getting Started
 
-## 💾 Technical Features
+### Prerequisites
+- Node.js (v16 or higher)
+- npm or yarn
 
-- **HTML5 Canvas**: Smooth 2D rendering with particle effects
-- **Responsive UI**: Adapts to all screen sizes
-- **Game State Management**: Robust state system (menu, playing, paused, gameover)
-- **Auto-save**: Progress saved after each action
-- **Service Worker**: Full PWA support for offline gameplay
+### Installation
 
-## 🛠️ Installation
+```bash
+# Install dependencies
+npm install
 
-### Play Online
-Simply open `index.html` in a modern web browser.
+# Run development server
+npm run dev
 
-### Install as PWA
-1. Open the game in Chrome/Edge/Safari
-2. Click the install button in the address bar
-3. Enjoy as a standalone app!
+# Build for production
+npm run build
 
-## 📱 Browser Support
+# Preview production build
+npm run preview
+```
 
-- Chrome/Edge: Full support ✅
-- Firefox: Full support ✅
-- Safari: Full support ✅
-- Mobile browsers: Full support ✅
+## 🎮 How to Play
 
-## 🎨 Game Controls
+### Controls
+- **A/D or Arrow Keys**: Move left/right
+- **1 or Q**: Use Blaster
+- **2 or E**: Use Thermal Detonator
+- **3 or R**: Use Energy Shield
+- **4 or F**: Use Combat Roll
+- **ESC or P**: Pause game
 
-- **Click/Tap**: Place defenses, interact with UI
-- **Shop Button**: Open defense shop
-- **Start Wave**: Begin tsunami attack
-- **Pause**: Pause/resume game
-- **Reset**: Clear current level defenses
+### Objective
+Survive endless waves of Imperial forces. Each wave increases in difficulty with more enemies and tougher opponents. Every 10 waves, face a powerful boss!
 
-## 🏆 Scoring
+### Tips
+- 💰 Collect powerups dropped by defeated enemies
+- ⚡ Manage your energy - skills require energy to use
+- 🛡️ Use shield before taking heavy damage
+- 💨 Dash to avoid enemy fire
+- 📈 Level up to increase your stats
+- 💾 Save your progress regularly
 
-- Survive waves to earn coins
-- Base reward: 100 coins
-- Level bonus: +50 coins per level
-- Wave bonus: +25 coins per wave number
-- Use coins to build stronger defenses
+## 🛠️ Tech Stack
 
-## 🌊 Wave Mechanics
+- **React 18**: Modern React with hooks
+- **Vite**: Lightning-fast build tool
+- **Zustand**: Lightweight state management
+- **Framer Motion**: Smooth animations
+- **CSS3**: Custom animations and effects
+- **Canvas API**: Game rendering (for enemies, projectiles, particles)
 
-- Waves get taller with each level
-- Speed increases progressively
-- Defenses slow down and reduce wave height
-- Destroyed defenses create particle effects
-- City takes damage when waves reach it
+## 📊 Game Architecture
 
-## 📊 Game Stats
+### State Management (Zustand)
+- Centralized game state
+- Real-time updates
+- Efficient re-renders
 
-- **Level**: Current difficulty level
-- **Coins**: Available currency
-- **City HP**: Your city's remaining health (100 max)
-- **Wave Status**: Current wave information
+### Component Structure
+```
+src/
+├── components/
+│   ├── GameCanvas.jsx      # Main game rendering
+│   ├── HUD.jsx             # Heads-up display
+│   ├── MainMenu.jsx        # Main menu screen
+│   ├── PauseMenu.jsx       # Pause screen
+│   ├── VictoryScreen.jsx   # Wave completion screen
+│   ├── DefeatScreen.jsx    # Game over screen
+│   ├── Notifications.jsx   # Toast notifications
+│   └── Starfield.jsx       # Animated background
+├── store/
+│   └── gameStore.js        # Zustand store
+├── styles/
+│   ├── global.css          # Global styles & animations
+│   ├── App.css             # Main app styles
+│   ├── HUD.css             # HUD component styles
+│   └── ...                 # Other component styles
+├── App.jsx                 # Main app component
+└── main.jsx               # Entry point
+```
 
-## 🎮 Game States
+## 🎯 Enemy Types
 
-- **Menu**: Main menu and how-to-play screens
-- **Playing**: Active gameplay
-- **Paused**: Game paused (can resume)
-- **Victory**: Wave completed successfully
-- **Game Over**: City destroyed
+1. **Stormtrooper**: Basic infantry unit
+2. **Scout Trooper**: Fast, light unit
+3. **Heavy Trooper**: Slow but tanky
+4. **Imperial Officer**: Mid-range specialist
+5. **Battle Droid**: Balanced combat unit
+6. **Destroyer Droid**: Heavy shield unit
+7. **AT-ST Walker**: Massive boss unit
 
-## 🔧 Development
+## 💡 Advanced Features
 
-Built with:
-- Vanilla JavaScript (ES6+)
-- HTML5 Canvas API
-- CSS3 with modern features
-- Web App Manifest
-- Service Worker API
-- LocalStorage API
+### Particle System
+- Hit effects
+- Explosion particles
+- Projectile trails
+- Environmental effects
 
-## 📝 License
+### AI System
+- Enemy pathfinding
+- Attack patterns
+- Range-based behavior
+- Boss mechanics
 
-Free to play and modify!
+### Progression System
+- XP-based leveling
+- Stat increases per level
+- Wave-based difficulty scaling
+- Boss waves every 10 waves
+
+## 🎨 Customization
+
+The game is highly customizable through the store configuration:
+- Enemy stats and behavior
+- Player abilities and stats
+- Difficulty multipliers
+- Wave progression
+- Visual effects
+
+## 📝 Future Enhancements
+
+Potential features for future versions:
+- 🎵 Sound effects and music
+- 🛒 Equipment and upgrade shop
+- 🏆 Achievement system
+- 📱 Mobile touch controls
+- 🌐 Online leaderboards
+- 🎭 Multiple playable characters
+- 🗺️ Different map environments
+
+## 🤝 Contributing
+
+This is a showcase project demonstrating advanced React game development. Feel free to fork and build upon it!
+
+## 📄 License
+
+MIT License - Feel free to use this project as a learning resource or base for your own games.
 
 ## 🌟 Credits
 
-Created as a PWA-enabled tsunami defense game with love for strategy and survival games!
+Built with ❤️ using modern web technologies.
 
----
-
-**Enjoy defending your city from the tsunami! 🌊🏰**
+**May the Force be with you!**

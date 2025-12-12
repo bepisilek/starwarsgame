@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Trench Run 2.5D</title>
+  <style>
+    html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    #c{display:block;width:100vw;height:100vh;touch-action:none;cursor:crosshair}
+    .ui{
+      position:fixed;left:12px;top:12px;color:#cfe7ff;
+      font-size:12px;line-height:1.35;letter-spacing:.2px;
+      text-shadow:0 0 10px rgba(120,190,255,.6),0 0 20px rgba(120,190,255,.25);
+      user-select:none;pointer-events:none;
+    }
+    .ui b{color:#fff}
+    .center{
+      position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+      color:#e8f3ff;text-align:center;pointer-events:none;user-select:none;
+      text-shadow:0 0 14px rgba(140,210,255,.7),0 0 30px rgba(140,210,255,.25);
+    }
+    .center h1{margin:0 0 6px;font-size:22px;letter-spacing:1px}
+    .center p{margin:0;font-size:13px;opacity:.9}
+    .hide{display:none}
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="ui" id="hud"></div>
+<div class="center" id="title">
+  <h1>TRENCH RUN 2.5D</h1>
+  <p>WASD vagy nyilak, egér mozgat, bal klikk vagy Space lő</p>
+  <p>Mobil: húzd az ujjad, tap = lő</p>
+  <p style="margin-top:10px;opacity:.8">Nyomj Entert a kezdéshez</p>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const hud = document.getElementById("hud");
+  const title = document.getElementById("title");
+
+  let W=0,H=0,DPR=1;
+  function resize(){
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    W = Math.floor(innerWidth * DPR);
+    H = Math.floor(innerHeight * DPR);
+    canvas.width = W; canvas.height = H;
+  }
+  addEventListener("resize", resize, {passive:true});
+  resize();
+
+  // ---------- Utils ----------
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const rand=(a,b)=>a+Math.random()*(b-a);
+  const irand=(a,b)=>Math.floor(rand(a,b+1));
+  const TAU=Math.PI*2;
+
+  // ---------- Input ----------
+  const keys = new Set();
+  const input = { mx:0, my:0, down:false, fire:false, justFire:false, any:false };
+  addEventListener("keydown", (e)=>{
+    keys.add(e.code);
+    input.any = true;
+    if(e.code==="Space"){ e.preventDefault(); }
+    if(e.code==="Enter" && state==="title"){ startGame(); }
+    if(e.code==="KeyR" && state==="dead"){ startGame(); }
+  });
+  addEventListener("keyup", (e)=>keys.delete(e.code));
+  addEventListener("pointerdown", (e)=>{ input.down=true; input.justFire=true; input.fire=true; input.any=true; });
+  addEventListener("pointerup", ()=>{ input.down=false; input.fire=false; });
+  addEventListener("pointermove", (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    input.mx = (e.clientX-rect.left)/rect.width*W;
+    input.my = (e.clientY-rect.top)/rect.height*H;
+  }, {passive:true});
+
+  // Touch drag aiming for mobile
+  let touchId=null, lastTouchX=0, lastTouchY=0;
+  canvas.addEventListener("touchstart",(e)=>{
+    input.any=true;
+    if(touchId===null){
+      const t=e.changedTouches[0];
+      touchId=t.identifier;
+      lastTouchX=t.clientX; lastTouchY=t.clientY;
+      input.justFire=true; input.fire=true;
+    }
+  },{passive:true});
+  canvas.addEventListener("touchend",(e)=>{
+    for(const t of e.changedTouches){
+      if(t.identifier===touchId){ touchId=null; }
+    }
+    input.fire=false;
+  },{passive:true});
+  canvas.addEventListener("touchmove",(e)=>{
+    for(const t of e.changedTouches){
+      if(t.identifier===touchId){
+        const dx=(t.clientX-lastTouchX)*DPR;
+        const dy=(t.clientY-lastTouchY)*DPR;
+        lastTouchX=t.clientX; lastTouchY=t.clientY;
+        // convert drag into aiming
+        input.mx = clamp((input.mx||W*0.5)+dx, 0, W);
+        input.my = clamp((input.my||H*0.65)+dy, 0, H);
+      }
+    }
+  },{passive:true});
+
+  // ---------- World / Style ----------
+  const palette = {
+    skyTop: "#02030a",
+    skyMid: "#03061a",
+    skyBot: "#02020a",
+    glow: "rgba(140,210,255,0.65)",
+    glow2: "rgba(255,80,120,0.55)",
+    metal1: "#a5b4c4",
+    metal2: "#5d6a78",
+    trenchDark: "#0b0e16",
+    trenchMid: "#12182a",
+    trenchLine: "rgba(130,180,255,0.28)",
+    hud: "#bfe2ff",
+    laser: "rgba(120,210,255,0.95)",
+    enemyLaser: "rgba(255,90,120,0.9)"
+  };
+
+  // Fake 2.5D projection:
+  // z in [0..1] where 0 is near, 1 is far.
+  function projX(x, z){
+    const f = 1 / (0.24 + z*1.8);
+    return W*0.5 + x * f;
+  }
+  function projY(y, z){
+    const f = 1 / (0.24 + z*1.8);
+    return H*0.6 + y * f;
+  }
+  function projS(s, z){
+    const f = 1 / (0.24 + z*1.8);
+    return s * f;
+  }
+
+  // ---------- Game state ----------
+  let state="title";
+  let t=0, dt=0, last=performance.now();
+  let shake=0, shakeX=0, shakeY=0;
+
+  const player = {
+    x:0, y:120, vx:0, vy:0,
+    aimX:0, aimY:0,
+    heat:0, hp:3,
+    score:0, combo:0, comboT:0
+  };
+
+  const stars = [];
+  const particles = [];
+  const shots = [];
+  const enemyShots = [];
+  const enemies = [];
+  const gates = [];
+  const debris = [];
+
+  // Pre-generate starfield
+  function initStars(){
+    stars.length=0;
+    for(let i=0;i<500;i++){
+      stars.push({
+        x: rand(-W*0.8, W*0.8),
+        y: rand(-H*0.9, H*0.9),
+        z: Math.random(),
+        s: rand(0.6, 2.6),
+        tw: rand(0,TAU)
+      });
+    }
+  }
+
+  // ---------- Drawing helpers ----------
+  function setGlow(strength=1){
+    ctx.shadowColor = palette.glow;
+    ctx.shadowBlur = 18*strength;
+  }
+  function clearGlow(){
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+  }
+
+  function drawVignette(){
+    const g = ctx.createRadialGradient(W*0.5,H*0.55,Math.min(W,H)*0.25, W*0.5,H*0.55, Math.max(W,H)*0.75);
+    g.addColorStop(0,"rgba(0,0,0,0)");
+    g.addColorStop(1,"rgba(0,0,0,0.65)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  function drawNoise(alpha=0.06){
+    // very cheap film grain
+    const n = 160;
+    ctx.globalAlpha = alpha;
+    for(let i=0;i<n;i++){
+      const x = Math.random()*W, y = Math.random()*H;
+      const w = rand(1,3)*DPR, h = rand(1,3)*DPR;
+      const v = irand(10,60);
+      ctx.fillStyle = `rgba(${v},${v+10},${v+25},1)`;
+      ctx.fillRect(x,y,w,h);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Procedural ship
+  function drawPlayerShip(px, py, s){
+    ctx.save();
+    ctx.translate(px,py);
+    const tilt = clamp(player.vx*0.012,-0.28,0.28);
+    ctx.rotate(tilt);
+
+    // engine glow
+    ctx.globalAlpha = 0.9;
+    setGlow(1.2);
+    const eg = ctx.createRadialGradient(-s*0.55, s*0.25, s*0.1, -s*0.55, s*0.25, s*0.9);
+    eg.addColorStop(0,"rgba(160,230,255,0.85)");
+    eg.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle = eg;
+    ctx.beginPath();
+    ctx.ellipse(-s*0.55, s*0.25, s*0.9, s*0.55, 0, 0, TAU);
+    ctx.fill();
+    clearGlow();
+    ctx.globalAlpha = 1;
+
+    // body
+    const bodyG = ctx.createLinearGradient(-s,0,s,0);
+    bodyG.addColorStop(0,palette.metal2);
+    bodyG.addColorStop(0.55,palette.metal1);
+    bodyG.addColorStop(1,palette.metal2);
+
+    ctx.fillStyle = bodyG;
+    ctx.beginPath();
+    ctx.moveTo(s*1.25, 0);
+    ctx.lineTo(s*0.15, -s*0.42);
+    ctx.lineTo(-s*0.95, 0);
+    ctx.lineTo(s*0.15, s*0.42);
+    ctx.closePath();
+    ctx.fill();
+
+    // cockpit
+    setGlow(0.7);
+    const cg = ctx.createRadialGradient(s*0.15,0,s*0.02, s*0.15,0,s*0.38);
+    cg.addColorStop(0,"rgba(180,240,255,0.95)");
+    cg.addColorStop(1,"rgba(0,30,60,0.15)");
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.ellipse(s*0.2,0,s*0.22,s*0.16,0,0,TAU);
+    ctx.fill();
+    clearGlow();
+
+    // wings
+    ctx.fillStyle = "#222a37";
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    ctx.moveTo(s*0.2,-s*0.2);
+    ctx.lineTo(-s*0.8,-s*0.85);
+    ctx.lineTo(-s*1.15,-s*0.75);
+    ctx.lineTo(-s*0.2,-s*0.05);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(s*0.2,s*0.2);
+    ctx.lineTo(-s*0.8,s*0.85);
+    ctx.lineTo(-s*1.15,s*0.75);
+    ctx.lineTo(-s*0.2,s*0.05);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // lasers tips
+    setGlow(0.9);
+    ctx.fillStyle = "rgba(120,210,255,0.85)";
+    ctx.fillRect(s*0.78,-s*0.25,s*0.25,s*0.06);
+    ctx.fillRect(s*0.78, s*0.19,s*0.25,s*0.06);
+    clearGlow();
+
+    ctx.restore();
+  }
+
+  function drawTieFighter(x,y,s,rot=0){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(rot);
+
+    // wings with subtle grid
+    const wing = (sx) => {
+      ctx.save();
+      ctx.scale(sx,1);
+      ctx.fillStyle = "#131722";
+      ctx.beginPath();
+      ctx.rect(-s*0.95,-s*0.75,s*0.75,s*1.5);
+      ctx.fill();
+
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = "rgba(160,190,255,0.22)";
+      ctx.lineWidth = Math.max(1, 1.2*DPR);
+      for(let i=0;i<6;i++){
+        const yy = lerp(-s*0.65,s*0.65,i/5);
+        ctx.beginPath(); ctx.moveTo(-s*0.9,yy); ctx.lineTo(-s*0.25,yy); ctx.stroke();
+      }
+      for(let i=0;i<4;i++){
+        const xx = lerp(-s*0.85,-s*0.35,i/3);
+        ctx.beginPath(); ctx.moveTo(xx,-s*0.7); ctx.lineTo(xx,s*0.7); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    };
+
+    wing(1);
+    wing(-1);
+
+    // struts
+    ctx.strokeStyle = "#2a3344";
+    ctx.lineWidth = Math.max(2, 2.4*DPR);
+    ctx.beginPath();
+    ctx.moveTo(-s*0.2,0); ctx.lineTo(-s*0.65,0);
+    ctx.moveTo( s*0.2,0); ctx.lineTo( s*0.65,0);
+    ctx.stroke();
+
+    // cockpit
+    const cg = ctx.createRadialGradient(0,0,s*0.1,0,0,s*0.55);
+    cg.addColorStop(0,"#9fb1c7");
+    cg.addColorStop(0.65,"#5c6b7c");
+    cg.addColorStop(1,"#2c3443");
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.arc(0,0,s*0.46,0,TAU);
+    ctx.fill();
+
+    // glass
+    setGlow(0.6);
+    ctx.fillStyle = "rgba(160,230,255,0.25)";
+    ctx.beginPath();
+    ctx.ellipse(s*0.12, -s*0.08, s*0.22, s*0.16, 0.2, 0, TAU);
+    ctx.fill();
+    clearGlow();
+
+    // cannon glow
+    setGlow(0.8);
+    ctx.fillStyle = "rgba(255,90,120,0.6)";
+    ctx.fillRect(s*0.42,-s*0.05,s*0.22,s*0.1);
+    ctx.fillRect(-s*0.64,-s*0.05,s*0.22,s*0.1);
+    clearGlow();
+
+    ctx.restore();
+  }
+
+  function drawExplosion(x,y,rad,hot=0.7){
+    ctx.save();
+    setGlow(1.4);
+    const g = ctx.createRadialGradient(x,y,rad*0.12, x,y,rad);
+    g.addColorStop(0,`rgba(255,220,170,${0.9*hot})`);
+    g.addColorStop(0.35,`rgba(255,110,140,${0.55*hot})`);
+    g.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x,y,rad,0,TAU); ctx.fill();
+    clearGlow();
+    ctx.restore();
+  }
+
+  // ---------- Spawning ----------
+  let spawnT=0, difficulty=0, speed=1;
+
+  function spawnEnemy(){
+    const z = 0.95;
+    const lane = rand(-220,220);
+    const yy = rand(-140, 60);
+    enemies.push({
+      x: lane,
+      y: yy,
+      z,
+      vx: rand(-0.25,0.25),
+      vy: rand(-0.08,0.12),
+      hp: 2 + (difficulty>0.65 ? 1 : 0),
+      fireCd: rand(0.4, 1.2),
+      wob: rand(0,TAU),
+      kind: Math.random()<0.25 ? "interceptor" : "tie"
+    });
+  }
+
+  function spawnGate(){
+    // collectible gate for score and speed boost feel
+    gates.push({
+      x: rand(-260,260),
+      y: rand(-170,40),
+      z: 0.98,
+      w: rand(120,180),
+      h: rand(70,110),
+      taken:false
+    });
+  }
+
+  // ---------- Gameplay ----------
+  function resetAll(){
+    particles.length=0; shots.length=0; enemyShots.length=0; enemies.length=0; gates.length=0; debris.length=0;
+    initStars();
+    player.x=0; player.y=120; player.vx=0; player.vy=0;
+    player.hp=3; player.score=0; player.combo=0; player.comboT=0;
+    player.heat=0;
+    spawnT=0; difficulty=0; speed=1; shake=0;
+  }
+
+  function startGame(){
+    resetAll();
+    state="play";
+    title.classList.add("hide");
+  }
+
+  function die(){
+    state="dead";
+    title.classList.remove("hide");
+    title.innerHTML = `
+      <h1>VÉGE</h1>
+      <p>Pontszám: <b>${Math.floor(player.score)}</b></p>
+      <p style="margin-top:8px;opacity:.9">Enter vagy R az újraindításhoz</p>
+    `;
+  }
+
+  function addParticles(x,y,n=12, base=1){
+    for(let i=0;i<n;i++){
+      particles.push({
+        x, y,
+        vx: rand(-1.4,1.4)*base,
+        vy: rand(-1.2,1.2)*base,
+        life: rand(0.35,0.9),
+        r: rand(2,6)*DPR,
+        hot: rand(0.4,1)
+      });
+    }
+  }
+
+  function shoot(){
+    if(player.heat>0.92) return;
+    player.heat += 0.12;
+    const px = player.x + 55;
+    const py = player.y + rand(-14,14);
+    shots.push({ x:px, y:py, z:0.12, vz: -0.0, life: 1.2, power:1 });
+    // twin shot
+    shots.push({ x:px, y:py+16, z:0.12, vz: -0.0, life: 1.2, power:1 });
+    shake = Math.min(1.2, shake + 0.06);
+  }
+
+  function enemyShoot(e){
+    enemyShots.push({
+      x: e.x - 25,
+      y: e.y,
+      z: e.z,
+      vz: -0.85 - difficulty*0.35,
+      life: 1.6
+    });
+  }
+
+  // Collision in projected space (cheap but good enough)
+  function hitTest2D(ax,ay,ar,bx,by,br){
+    const dx=ax-bx, dy=ay-by;
+    return dx*dx+dy*dy < (ar+br)*(ar+br);
+  }
+
+  // ---------- Render background ----------
+  function drawBackground(){
+    // sky gradient
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,palette.skyTop);
+    g.addColorStop(0.5,palette.skyMid);
+    g.addColorStop(1,palette.skyBot);
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // stars
+    ctx.save();
+    ctx.translate(shakeX,shakeY);
+    for(const s of stars){
+      const tw = 0.6 + 0.4*Math.sin(t*1.4 + s.tw);
+      const x = projX(s.x, s.z) + player.vx*0.06;
+      const y = projY(s.y, s.z) + player.vy*0.04;
+      const r = projS(s.s*DPR, s.z) * tw;
+      ctx.globalAlpha = 0.85*(1-s.z) + 0.15;
+      ctx.fillStyle = `rgba(210,235,255,${0.9*(1-s.z)+0.1})`;
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    // distant nebula glow
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    setGlow(1.0);
+    const ng = ctx.createRadialGradient(W*0.25,H*0.25,Math.min(W,H)*0.08, W*0.25,H*0.25, Math.min(W,H)*0.6);
+    ng.addColorStop(0,"rgba(140,210,255,0.14)");
+    ng.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle = ng;
+    ctx.fillRect(0,0,W,H);
+    clearGlow();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // Trench 2.5D floor illusion
+  function drawTrench(){
+    ctx.save();
+    ctx.translate(shakeX,shakeY);
+
+    const horizonZ = 1.0;
+    const nearZ = 0.0;
+
+    // draw multiple depth slices
+    const slices = 64;
+    for(let i=0;i<slices;i++){
+      const z0 = i / slices;
+      const z1 = (i+1) / slices;
+
+      // "lane" half-width changes with depth
+      const half0 = 320 * (1 - z0) + 55;
+      const half1 = 320 * (1 - z1) + 55;
+
+      const y0 = projY(260, z0);
+      const y1 = projY(260, z1);
+
+      const xL0 = projX(-half0, z0);
+      const xR0 = projX( half0, z0);
+      const xL1 = projX(-half1, z1);
+      const xR1 = projX( half1, z1);
+
+      // base fill
+      const shade = 0.12 + 0.55*(1-z0);
+      ctx.fillStyle = `rgba(10,14,22,${0.85})`;
+      ctx.beginPath();
+      ctx.moveTo(xL0,y0);
+      ctx.lineTo(xR0,y0);
+      ctx.lineTo(xR1,y1);
+      ctx.lineTo(xL1,y1);
+      ctx.closePath();
+      ctx.fill();
+
+      // grid line every few slices
+      if(i%6===0){
+        ctx.strokeStyle = palette.trenchLine;
+        ctx.lineWidth = Math.max(1, 1.4*DPR*(1-z0));
+        ctx.beginPath();
+        ctx.moveTo(xL0,y0);
+        ctx.lineTo(xR0,y0);
+        ctx.stroke();
+      }
+
+      // side walls glow edges
+      ctx.globalAlpha = 0.45;
+      setGlow(0.55);
+      ctx.strokeStyle = "rgba(140,210,255,0.18)";
+      ctx.lineWidth = Math.max(1, 1.2*DPR*(1-z0));
+      ctx.beginPath(); ctx.moveTo(xL0,y0); ctx.lineTo(xL1,y1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xR0,y0); ctx.lineTo(xR1,y1); ctx.stroke();
+      clearGlow();
+      ctx.globalAlpha = 1;
+    }
+
+    // center guide line
+    setGlow(0.8);
+    ctx.strokeStyle = "rgba(120,210,255,0.16)";
+    ctx.lineWidth = Math.max(1, 1.2*DPR);
+    ctx.beginPath();
+    for(let i=0;i<70;i++){
+      const z = i/70;
+      const y = projY(260, z);
+      const x = projX(0, z);
+      if(i===0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    clearGlow();
+
+    ctx.restore();
+  }
+
+  function drawCrosshair(){
+    const cx = player.aimX, cy = player.aimY;
+    ctx.save();
+    ctx.translate(shakeX,shakeY);
+    setGlow(0.9);
+    ctx.strokeStyle = "rgba(180,240,255,0.85)";
+    ctx.lineWidth = Math.max(1, 1.3*DPR);
+    ctx.beginPath();
+    ctx.arc(cx,cy,14*DPR,0,TAU);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx-24*DPR,cy); ctx.lineTo(cx-10*DPR,cy);
+    ctx.moveTo(cx+10*DPR,cy); ctx.lineTo(cx+24*DPR,cy);
+    ctx.moveTo(cx,cy-24*DPR); ctx.lineTo(cx,cy-10*DPR);
+    ctx.moveTo(cx,cy+10*DPR); ctx.lineTo(cx,cy+24*DPR);
+    ctx.stroke();
+    clearGlow();
+    ctx.restore();
+  }
+
+  // ---------- Main update ----------
+  function update(){
+    const now = performance.now();
+    dt = Math.min(0.033, (now-last)/1000);
+    last = now;
+    t += dt;
+
+    // shake decay
+    shake = Math.max(0, shake - dt*2.6);
+    shakeX = (Math.random()-0.5) * shake * 10 * DPR;
+    shakeY = (Math.random()-0.5) * shake * 10 * DPR;
+
+    // Title uses subtle idle anim
+    if(state==="title"){
+      if(!input.mx && !input.my){ input.mx=W*0.5; input.my=H*0.62; }
+      draw();
+      input.justFire=false;
+      requestAnimationFrame(update);
+      return;
+    }
+
+    if(state==="dead"){
+      draw();
+      input.justFire=false;
+      requestAnimationFrame(update);
+      return;
+    }
+
+    // ---- PLAY ----
+    difficulty = clamp(difficulty + dt*0.03, 0, 1);
+    speed = 1 + difficulty*1.35;
+
+    // aim follows mouse or falls back to center
+    if(!input.mx && !input.my){ input.mx=W*0.5; input.my=H*0.62; }
+    player.aimX = lerp(player.aimX || W*0.5, input.mx, 1 - Math.pow(0.001, dt));
+    player.aimY = lerp(player.aimY || H*0.62, input.my, 1 - Math.pow(0.001, dt));
+
+    // movement
+    const left = keys.has("ArrowLeft") || keys.has("KeyA");
+    const right = keys.has("ArrowRight") || keys.has("KeyD");
+    const up = keys.has("ArrowUp") || keys.has("KeyW");
+    const down = keys.has("ArrowDown") || keys.has("KeyS");
+
+    let ax = 0, ay = 0;
+    if(left) ax -= 1;
+    if(right) ax += 1;
+    if(up) ay -= 1;
+    if(down) ay += 1;
+
+    // also steer slightly toward crosshair for that "arcade" feel
+    const steerX = clamp((player.aimX - W*0.5)/W, -0.5, 0.5);
+    const steerY = clamp((player.aimY - H*0.6)/H, -0.5, 0.5);
+
+    player.vx = lerp(player.vx, (ax + steerX*1.2) * 520, 1 - Math.pow(0.0008, dt));
+    player.vy = lerp(player.vy, (ay + steerY*1.0) * 420, 1 - Math.pow(0.0008, dt));
+
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
+
+    // trench bounds
+    player.x = clamp(player.x, -280, 280);
+    player.y = clamp(player.y, -10, 220);
+
+    // heat cool
+    player.heat = Math.max(0, player.heat - dt*0.35);
+
+    // shooting
+    const wantFire = input.fire || keys.has("Space");
+    if(wantFire && (input.justFire || (t*20|0)%2===0)){
+      // simple fire rate limiter via parity
+      shoot();
+    }
+    input.justFire=false;
+
+    // star drift and depth wrap
+    for(const s of stars){
+      s.z -= dt*0.09*speed*(0.35 + s.z*0.9);
+      if(s.z < 0.02){
+        s.z = 0.98;
+        s.x = rand(-W*0.8, W*0.8);
+        s.y = rand(-H*0.9, H*0.9);
+      }
+    }
+
+    // spawn enemies and gates
+    spawnT -= dt*speed;
+    if(spawnT<=0){
+      spawnT = rand(0.35, 0.85) * (1 - difficulty*0.35);
+      spawnEnemy();
+      if(Math.random()<0.35) spawnGate();
+    }
+
+    // update gates
+    for(const g of gates){
+      g.z -= dt*(0.85*speed);
+      g.y += Math.sin(t*1.2 + g.x*0.02) * dt*16;
+      if(!g.taken){
+        // player passes through near plane?
+        if(g.z < 0.22){
+          const gx = projX(g.x, 0.22);
+          const gy = projY(g.y, 0.22);
+          const px = projX(player.x, 0.18);
+          const py = projY(player.y, 0.18);
+          const w = projS(g.w, 0.22);
+          const h = projS(g.h, 0.22);
+          if(Math.abs(px-gx)<w*0.45 && Math.abs(py-gy)<h*0.45){
+            g.taken=true;
+            player.score += 250 + player.combo*30;
+            player.combo = Math.min(25, player.combo+2);
+            player.comboT = 1.6;
+            addParticles(gx,gy,18,1.1);
+            shake = Math.min(1.4, shake+0.18);
+          }
+        }
+      }
+    }
+    // remove old gates
+    for(let i=gates.length-1;i>=0;i--){
+      if(gates[i].z < 0.05) gates.splice(i,1);
+    }
+
+    // update enemies
+    for(const e of enemies){
+      e.z -= dt*(0.65*speed);
+      e.wob += dt*(1.2 + difficulty*1.3);
+      e.x += (e.vx*120 + Math.sin(e.wob)*22) * dt;
+      e.y += (e.vy*95  + Math.cos(e.wob*0.9)*16) * dt;
+
+      // clamp in trench
+      e.x = clamp(e.x, -300, 300);
+      e.y = clamp(e.y, -220, 120);
+
+      // fire
+      e.fireCd -= dt*(1 + difficulty*0.4);
+      if(e.fireCd<=0 && e.z < 0.9){
+        e.fireCd = rand(0.6, 1.35) * (1 - difficulty*0.35);
+        if(Math.random() < 0.75){
+          enemyShoot(e);
+        }
+      }
+    }
+    for(let i=enemies.length-1;i>=0;i--){
+      if(enemies[i].z < 0.08) enemies.splice(i,1);
+    }
+
+    // update shots (player) in projected space using near plane values
+    for(const s of shots){
+      // move forward across screen
+      s.x += dt*(760 + difficulty*220);
+      // slight aim toward crosshair
+      const aimDx = (player.aimX - W*0.5)/W;
+      const aimDy = (player.aimY - H*0.6)/H;
+      s.y += aimDy * dt * 260;
+      s.life -= dt;
+    }
+    for(let i=shots.length-1;i>=0;i--){
+      if(shots[i].life<=0 || shots[i].x > (W/DPR)+420) shots.splice(i,1);
+    }
+
+    // update enemy shots
+    for(const s of enemyShots){
+      s.z -= dt*(0.92*speed);
+      s.x += dt*rand(-12,12);
+      s.y += dt*rand(-8,8);
+      s.life -= dt;
+    }
+    for(let i=enemyShots.length-1;i>=0;i--){
+      if(enemyShots[i].life<=0 || enemyShots[i].z<0.08) enemyShots.splice(i,1);
+    }
+
+    // particles
+    for(const p of particles){
+      p.life -= dt;
+      p.x += p.vx*120*dt;
+      p.y += p.vy*120*dt;
+      p.vx *= Math.pow(0.35, dt);
+      p.vy *= Math.pow(0.35, dt);
+    }
+    for(let i=particles.length-1;i>=0;i--){
+      if(particles[i].life<=0) particles.splice(i,1);
+    }
+
+    // combo decay
+    if(player.comboT>0) player.comboT -= dt;
+    else player.combo = Math.max(0, player.combo - dt*2.2);
+
+    // collisions: shots vs enemies (approx in screen space)
+    for(let si=shots.length-1;si>=0;si--){
+      const s = shots[si];
+      for(let ei=enemies.length-1;ei>=0;ei--){
+        const e = enemies[ei];
+        if(e.z>0.98) continue;
+        const ex = projX(e.x, e.z);
+        const ey = projY(e.y, e.z);
+        const er = projS(36, e.z);
+        // projectile in "near plane"
+        const sx = projX((s.x - (W*0.5/DPR))*1.2, 0.22); // fake mapping
+        const sy = projY((s.y - (H*0.6/DPR))*1.2, 0.22);
+        if(hitTest2D(sx,sy,10*DPR, ex,ey, er)){
+          shots.splice(si,1);
+          e.hp -= 1;
+          addParticles(ex,ey,10,0.9);
+          shake = Math.min(1.6, shake+0.12);
+          if(e.hp<=0){
+            enemies.splice(ei,1);
+            player.score += 140 + Math.floor(80*difficulty) + player.combo*18;
+            player.combo = Math.min(25, player.combo+1.2);
+            player.comboT = 1.4;
+            drawExplosion(ex,ey, projS(64, e.z), 0.9);
+            addParticles(ex,ey,22,1.2);
+          }
+          break;
+        }
+      }
+    }
+
+    // collisions: enemy shots vs player (screen space, near plane)
+    const px = projX(player.x, 0.18);
+    const py = projY(player.y, 0.18);
+    const pr = projS(34, 0.18);
+    for(let i=enemyShots.length-1;i>=0;i--){
+      const s = enemyShots[i];
+      const sx = projX(s.x, s.z);
+      const sy = projY(s.y, s.z);
+      const sr = projS(10, s.z);
+      if(hitTest2D(sx,sy,sr, px,py,pr)){
+        enemyShots.splice(i,1);
+        player.hp -= 1;
+        player.combo = 0;
+        player.comboT = 0;
+        shake = Math.min(2.2, shake+0.6);
+        drawExplosion(px,py, pr*2.4, 1.0);
+        addParticles(px,py,32,1.4);
+        if(player.hp<=0){
+          die();
+        }
+      }
+    }
+
+    player.score += dt * (18 + difficulty*24);
+
+    draw();
+    requestAnimationFrame(update);
+  }
+
+  // ---------- Draw world ----------
+  function draw(){
+    drawBackground();
+    drawTrench();
+
+    ctx.save();
+    ctx.translate(shakeX,shakeY);
+
+    // sort by depth for enemies and gates
+    const drawables = [];
+    for(const e of enemies) drawables.push({z:e.z, type:"e", o:e});
+    for(const g of gates) drawables.push({z:g.z, type:"g", o:g});
+    drawables.sort((a,b)=>b.z-a.z);
+
+    // draw gates and enemies (far to near)
+    for(const d of drawables){
+      if(d.type==="g"){
+        const g = d.o;
+        if(g.taken) continue;
+        const x = projX(g.x, g.z);
+        const y = projY(g.y, g.z);
+        const w = projS(g.w, g.z);
+        const h = projS(g.h, g.z);
+        setGlow(1.0);
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = "rgba(160,235,255,0.65)";
+        ctx.lineWidth = Math.max(2, 2.4*DPR*(1-g.z));
+        ctx.beginPath();
+        ctx.roundRect(x-w*0.5, y-h*0.5, w, h, Math.max(8, 18*DPR*(1-g.z)));
+        ctx.stroke();
+        ctx.globalAlpha = 0.45;
+        ctx.strokeStyle = "rgba(255,90,120,0.35)";
+        ctx.beginPath();
+        ctx.roundRect(x-w*0.46, y-h*0.46, w*0.92, h*0.92, Math.max(8, 16*DPR*(1-g.z)));
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        clearGlow();
+      } else {
+        const e = d.o;
+        const x = projX(e.x, e.z);
+        const y = projY(e.y, e.z);
+        const s = projS(52, e.z);
+        const rot = (e.kind==="interceptor" ? 0.12 : 0) + Math.sin(e.wob*0.9)*0.06;
+        drawTieFighter(x,y,s,rot);
+
+        // health pip
+        if(e.hp>1){
+          ctx.globalAlpha = 0.7;
+          setGlow(0.5);
+          ctx.fillStyle = "rgba(255,90,120,0.5)";
+          ctx.fillRect(x-s*0.5, y-s*0.9, s*0.6, Math.max(2,3*DPR));
+          clearGlow();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+
+    // player ship (near)
+    const shipX = projX(player.x, 0.18);
+    const shipY = projY(player.y, 0.18);
+    drawPlayerShip(shipX, shipY, projS(52, 0.18));
+
+    // player shots
+    setGlow(1.1);
+    ctx.lineWidth = Math.max(2, 2.6*DPR);
+    for(const s of shots){
+      const sx = (shipX + (s.x*DPR)*0.25);
+      const sy = (shipY + (s.y*DPR - shipY)*0.08);
+      ctx.strokeStyle = palette.laser;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + 34*DPR, sy + rand(-1,1)*DPR);
+      ctx.stroke();
+    }
+    clearGlow();
+    ctx.globalAlpha = 1;
+
+    // enemy shots
+    setGlow(1.0);
+    ctx.lineWidth = Math.max(2, 2.4*DPR);
+    for(const s of enemyShots){
+      const sx = projX(s.x, s.z);
+      const sy = projY(s.y, s.z);
+      ctx.strokeStyle = palette.enemyLaser;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx - projS(36, s.z), sy + rand(-1,1)*DPR);
+      ctx.stroke();
+    }
+    clearGlow();
+    ctx.globalAlpha = 1;
+
+    // particles
+    for(const p of particles){
+      ctx.globalAlpha = clamp(p.life*1.2, 0, 1);
+      const r = p.r * (0.5 + p.life);
+      const g = ctx.createRadialGradient(p.x,p.y, r*0.1, p.x,p.y, r);
+      g.addColorStop(0,`rgba(255,220,170,${0.9*p.hot})`);
+      g.addColorStop(0.45,`rgba(255,110,140,${0.55*p.hot})`);
+      g.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x,p.y,r,0,TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.restore();
+
+    drawCrosshair();
+    drawVignette();
+    drawNoise(0.05);
+
+    // HUD
+    const heatBar = Math.floor((1-player.heat)*10);
+    const heatStr = "▮".repeat(heatBar) + "▯".repeat(10-heatBar);
+    const hpStr = "❤".repeat(player.hp) + "·".repeat(Math.max(0,3-player.hp));
+    const combo = player.combo>0 ? ` | combo x${player.combo.toFixed(1)}` : "";
+    hud.innerHTML = `
+      <b>Pont</b> ${Math.floor(player.score)}<br>
+      <b>HP</b> ${hpStr}<br>
+      <b>Hűtés</b> ${heatStr}${combo}
+    `;
+  }
+
+  // Polyfill for roundRect if needed
+  if(!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w*0.5, h*0.5);
+      this.beginPath();
+      this.moveTo(x+r,y);
+      this.arcTo(x+w,y,x+w,y+h,r);
+      this.arcTo(x+w,y+h,x,y+h,r);
+      this.arcTo(x,y+h,x,y,r);
+      this.arcTo(x,y,x+w,y,r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  // Start loop
+  initStars();
+  // show title on first paint
+  draw();
+  requestAnimationFrame(update);
+})();
+</script>
+</body>
+</html>
